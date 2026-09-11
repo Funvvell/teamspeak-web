@@ -1,0 +1,32 @@
+{
+  "name": "teamspeak-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n gateway,web -c blue,green \"npm run dev:gateway\" \"npm run dev:web\"",
+    "dev:web": "vite",
+    "dev:gateway": "tsx watch gateway/src/index.ts",
+    "build": "npm run build:web",
+    "build:web": "vite build",
+    "start": "tsx gateway/src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p gateway/tsconfig.json --noEmit",
+    "test": "npm run typecheck"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@types/ws": "^8.18.0",
+    "@vitejs/plugin-react": "^4.4.0",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.3.0"
+  }
+}
