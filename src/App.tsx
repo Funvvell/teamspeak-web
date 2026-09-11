@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import {
   DEFAULT_VOICE_PORT,
   type ChannelNode,
@@ -17,6 +24,8 @@ interface ChatMsg {
   text: string
   ts: number
 }
+
+const LS_KEY = 'tsweb:lastConnect'
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString(undefined, {
@@ -44,29 +53,31 @@ function ChannelListView({
   onJoin: (id: number) => void
 }) {
   if (!channels.length) {
-    return <div className="empty">连接后显示频道树</div>
+    return <div className="empty">连接服务器后显示频道树</div>
   }
 
   const byParent = new Map<number | null, ChannelNode[]>()
   for (const ch of channels) {
-    const key = ch.parentId
-    const list = byParent.get(key) ?? []
+    const list = byParent.get(ch.parentId) ?? []
     list.push(ch)
-    byParent.set(key, list)
+    byParent.set(ch.parentId, list)
   }
 
   function render(parentId: number | null, depth = 0): ReactNode {
-    const list = (byParent.get(parentId) ?? []).slice().sort((a, b) => a.id - b.id)
+    const list = (byParent.get(parentId) ?? [])
+      .slice()
+      .sort((a, b) => a.id - b.id)
     return list.map((ch) => (
-      <li key={ch.id} style={{ marginLeft: depth * 8 }}>
+      <li key={ch.id} style={{ marginLeft: depth ? depth * 10 : 0 }}>
         <div className={`channel${activeChannelId === ch.id ? ' active' : ''}`}>
           <button
             type="button"
             className="channel-head"
             onClick={() => onJoin(ch.id)}
+            title="点击切换到此频道"
           >
             <span className="channel-name">
-              {ch.isDefault ? '⌂ ' : '# '}
+              <span className="channel-icon">{ch.isDefault ? '⌂' : '#'}</span>
               {ch.name}
             </span>
             <span className="channel-meta">
@@ -76,10 +87,16 @@ function ChannelListView({
           {ch.clients.length > 0 && (
             <div className="clients">
               {ch.clients.map((c) => (
-                <div key={c.id} className={`client${c.id === selfId ? ' me' : ''}`}>
+                <div
+                  key={c.id}
+                  className={`client${c.id === selfId ? ' me' : ''}`}
+                >
                   <span className={`dot${c.isTalking ? ' talking' : ''}`} />
                   <span>{c.nickname}</span>
-                  {c.isMuted && <span className="channel-meta"> 🔇</span>}
+                  {c.id === selfId && (
+                    <span className="channel-meta">（我）</span>
+                  )}
+                  {c.isMuted && <span className="channel-meta">🔇</span>}
                 </div>
               ))}
             </div>
@@ -94,15 +111,28 @@ function ChannelListView({
 }
 
 export default function App() {
-  const [host, setHost] = useState('')
-  const [port, setPort] = useState(String(DEFAULT_VOICE_PORT))
-  const [nickname, setNickname] = useState('')
+  const saved = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LS_KEY) || '{}') as {
+        host?: string
+        port?: string
+        nickname?: string
+      }
+    } catch {
+      return {}
+    }
+  }, [])
+
+  const [host, setHost] = useState(saved.host || '')
+  const [port, setPort] = useState(saved.port || String(DEFAULT_VOICE_PORT))
+  const [nickname, setNickname] = useState(saved.nickname || '')
   const [password, setPassword] = useState('')
 
   const [wsStatus, setWsStatus] = useState<WsStatus>('idle')
   const [connState, setConnState] = useState<ConnectionState>('idle')
   const [connMessage, setConnMessage] = useState<string | null>(null)
   const [serverName, setServerName] = useState<string | null>(null)
+  const [welcome, setWelcome] = useState<string | null>(null)
   const [selfId, setSelfId] = useState<number | null>(null)
   const [channels, setChannels] = useState<ChannelNode[]>([])
   const [clients, setClients] = useState<ClientInfo[]>([])
@@ -110,6 +140,7 @@ export default function App() {
   const [chatTarget, setChatTarget] = useState<'channel' | 'server'>('channel')
   const [draft, setDraft] = useState('')
   const [lastError, setLastError] = useState<string | null>(null)
+  const [muted, setMuted] = useState(false)
 
   const clientRef = useRef<ReturnType<typeof createGatewayClient> | null>(null)
   const pushIncomingRef = useRef<(opus: Uint8Array) => void>(() => {})
@@ -117,7 +148,6 @@ export default function App() {
   const mic = useMicrophone((opus) => {
     clientRef.current?.sendAudio(encodeVoiceFrame(opus))
   })
-
   pushIncomingRef.current = mic.pushIncoming
 
   const activeChannelId = useMemo(() => {
@@ -140,6 +170,7 @@ export default function App() {
       case 'server_info':
         setServerName(msg.name)
         setSelfId(msg.selfId)
+        setWelcome(msg.welcome)
         break
       case 'channel_tree':
         setChannels(msg.channels)
@@ -176,11 +207,6 @@ export default function App() {
     }
   }, [onMessage, onAudioFrame])
 
-  useEffect(() => {
-    void mic.refreshDevices()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   const connected = connState === 'connected'
 
   function handleConnect() {
@@ -190,6 +216,14 @@ export default function App() {
     }
     setLastError(null)
     setMessages([])
+    localStorage.setItem(
+      LS_KEY,
+      JSON.stringify({
+        host: host.trim(),
+        port: String(Number(port) || DEFAULT_VOICE_PORT),
+        nickname: nickname.trim(),
+      }),
+    )
     clientRef.current?.send({
       type: 'connect',
       host: host.trim(),
@@ -201,7 +235,6 @@ export default function App() {
 
   function handleDisconnect() {
     clientRef.current?.send({ type: 'disconnect' })
-    mic.stopMic()
   }
 
   function handleJoin(channelId: number) {
@@ -212,17 +245,35 @@ export default function App() {
   function handleSend() {
     const text = draft.trim()
     if (!text || !connected) return
-    clientRef.current?.send({ type: 'send_message', target: chatTarget, text })
+    clientRef.current?.send({
+      type: 'send_message',
+      target: chatTarget,
+      text,
+    })
     setDraft('')
   }
 
-  async function toggleMic() {
+  function toggleMute() {
+    const next = !muted
+    setMuted(next)
+    mic.setMuted(next)
+  }
+
+  function toggleMicPower() {
     if (mic.state.micOn) {
       mic.stopMic()
       clientRef.current?.send({ type: 'mic', enabled: false })
     } else {
-      await mic.requestMic(mic.state.selectedId || undefined)
-      clientRef.current?.send({ type: 'mic', enabled: true })
+      void mic.requestMic(mic.state.selectedId || undefined).then(() => {
+        clientRef.current?.send({ type: 'mic', enabled: true })
+      })
+    }
+  }
+
+  async function switchDevice(id: string) {
+    mic.setState((s) => ({ ...s, selectedId: id }))
+    if (mic.state.micOn) {
+      await mic.requestMic(id)
     }
   }
 
@@ -234,25 +285,40 @@ export default function App() {
     error: '错误',
   }
 
+  const wsLabel =
+    wsStatus === 'open'
+      ? '网关在线'
+      : wsStatus === 'connecting'
+        ? '网关连接中'
+        : '网关离线'
+
   return (
     <div className="app">
       <header className="topbar">
-        <h1>TeamSpeak Web</h1>
+        <div className="brand">
+          <div className="brand-mark">TS</div>
+          <span>TeamSpeak Web</span>
+        </div>
         <span className={statusBadge(connState)}>
           {stateLabel[connState]}
           {serverName ? ` · ${serverName}` : ''}
         </span>
-        <span className="badge">
-          WS: {wsStatus === 'open' ? '在线' : wsStatus === 'connecting' ? '握手中' : wsStatus}
-        </span>
-        <span className="hint" style={{ marginLeft: 'auto' }}>
-          TS3 协议网关 · 连接任意可达服务器
+        <span className={`badge${wsStatus === 'open' ? ' ok' : ''}`}>{wsLabel}</span>
+        <span className="spacer" />
+        <span className="hint hide-sm">
+          {mic.state.micOn
+            ? muted
+              ? '麦克风已静音'
+              : '麦克风就绪 · 自动识别'
+            : mic.state.permission === 'denied'
+              ? '等待麦克风权限'
+              : '正在识别麦克风…'}
         </span>
       </header>
 
       <div className="main">
         <aside className="panel">
-          <h2>连接</h2>
+          <h2>连接服务器</h2>
           <div className="body">
             <div className="form-grid">
               <label>
@@ -278,7 +344,7 @@ export default function App() {
                 <input
                   value={nickname}
                   onChange={(e) => setNickname(e.target.value)}
-                  placeholder="Your name"
+                  placeholder="你的昵称"
                   disabled={connected || connState === 'connecting'}
                 />
               </label>
@@ -294,7 +360,7 @@ export default function App() {
               <div className="row">
                 {connected || connState === 'connecting' ? (
                   <button type="button" className="danger" onClick={handleDisconnect}>
-                    断开
+                    断开连接
                   </button>
                 ) : (
                   <button type="button" className="primary" onClick={handleConnect}>
@@ -303,45 +369,61 @@ export default function App() {
                 )}
               </div>
               {lastError && <div className="error-box">{lastError}</div>}
-              {connMessage && !lastError && (
-                <div className="hint">{connMessage}</div>
+              {connected && welcome && !lastError && (
+                <div className="ok-box">{welcome}</div>
               )}
-              <p className="hint">
-                浏览器无法直接使用 TS 的 UDP 语音协议。本项目通过本地网关桥接：
-                Web ↔ WebSocket ↔ Gateway ↔ TS3（真实协议栈）。
-              </p>
+              {!connected && connMessage && !lastError && (
+                <p className="hint">{connMessage}</p>
+              )}
             </div>
           </div>
 
-          <h2>音频</h2>
+          <div className="section-gap" />
+          <h2>音频设备（自动识别）</h2>
           <div className="body">
             <div className="form-grid">
               <label>
                 麦克风
                 <select
                   value={mic.state.selectedId}
-                  onChange={async (e) => {
-                    const id = e.target.value
-                    mic.setState((s) => ({ ...s, selectedId: id }))
-                    if (mic.state.micOn) await mic.requestMic(id)
-                  }}
+                  onChange={(e) => void switchDevice(e.target.value)}
                 >
-                  {mic.state.devices.length === 0 && <option value="">未检测到设备</option>}
+                  {mic.state.devices.length === 0 && (
+                    <option value="">
+                      {mic.state.ready ? '未检测到设备' : '识别中…'}
+                    </option>
+                  )}
                   {mic.state.devices.map((d) => (
                     <option key={d.deviceId} value={d.deviceId}>
-                      {d.label || d.deviceId.slice(0, 8)}
+                      {d.label || `麦克风 ${d.deviceId.slice(0, 6)}`}
                     </option>
                   ))}
                 </select>
               </label>
-              <div className="meter" title="输入电平">
-                <span style={{ width: `${Math.round(mic.state.level * 100)}%` }} />
+
+              <div className="meter-wrap">
+                <div className="meter-label">
+                  <span>输入电平</span>
+                  <span>{mic.state.micOn ? (muted ? '静音' : '采集中') : '未采集'}</span>
+                </div>
+                <div className="meter">
+                  <span
+                    style={{
+                      width: `${Math.round((muted ? 0 : mic.state.level) * 100)}%`,
+                    }}
+                  />
+                </div>
               </div>
+
               <div className="row">
-                <button type="button" onClick={() => void toggleMic()}>
-                  {mic.state.micOn ? '关闭麦克风' : '开启麦克风'}
+                <button type="button" onClick={toggleMute} disabled={!mic.state.micOn}>
+                  {muted ? '取消静音' : '静音'}
+                </button>
+                <button type="button" className="ghost" onClick={toggleMicPower}>
+                  {mic.state.micOn ? '关闭麦克风' : '重新开启麦克风'}
                 </button>
               </div>
+
               <label>
                 输出音量 {Math.round(mic.state.outputVolume * 100)}%
                 <input
@@ -352,23 +434,29 @@ export default function App() {
                   onChange={(e) => mic.setOutputVolume(Number(e.target.value) / 100)}
                 />
               </label>
-              {!mic.state.webCodecs && (
-                <div className="error-box">
-                  当前浏览器不支持 WebCodecs Opus，无法收发语音（建议 Chrome/Edge）。
-                </div>
-              )}
+
               {mic.state.permission === 'denied' && (
-                <div className="error-box">麦克风权限被拒绝，请在浏览器设置中允许。</div>
+                <div className="error-box">
+                  未获得麦克风权限。请在浏览器地址栏点击权限图标 → 允许麦克风，然后刷新页面。
+                </div>
               )}
               {mic.state.error && mic.state.permission !== 'denied' && (
                 <div className="error-box">{mic.state.error}</div>
+              )}
+              {!mic.state.webCodecs && (
+                <div className="error-box">
+                  当前浏览器不支持 WebCodecs Opus，请使用 Chrome / Edge。
+                </div>
+              )}
+              {mic.state.micOn && mic.state.permission === 'granted' && (
+                <p className="hint">打开页面时已自动识别并启用麦克风，无需再手动点开启。</p>
               )}
             </div>
           </div>
         </aside>
 
         <section className="panel">
-          <h2>频道树</h2>
+          <h2>频道</h2>
           <div className="body">
             <ChannelListView
               channels={channels}
@@ -379,12 +467,10 @@ export default function App() {
           </div>
         </section>
 
-        <section className="panel">
-          <h2>聊天</h2>
+        <section className="panel chat-panel">
+          <h2>文字聊天</h2>
           <div className="chat-log">
-            {messages.length === 0 && (
-              <div className="empty">连接后显示消息</div>
-            )}
+            {messages.length === 0 && <div className="empty">连接后显示消息</div>}
             {messages.map((m, i) => (
               <div key={`${m.ts}-${i}`} className="msg">
                 <span className="from">{m.from}</span>
@@ -399,9 +485,7 @@ export default function App() {
           <div className="chat-input">
             <select
               value={chatTarget}
-              onChange={(e) =>
-                setChatTarget(e.target.value as 'channel' | 'server')
-              }
+              onChange={(e) => setChatTarget(e.target.value as 'channel' | 'server')}
               disabled={!connected}
             >
               <option value="channel">当前频道</option>
@@ -416,10 +500,15 @@ export default function App() {
                   handleSend()
                 }
               }}
-              placeholder={connected ? '输入消息…' : '请先连接服务器'}
+              placeholder={connected ? '输入消息，Enter 发送' : '请先连接服务器'}
               disabled={!connected}
             />
-            <button type="button" className="primary" onClick={handleSend} disabled={!connected}>
+            <button
+              type="button"
+              className="primary"
+              onClick={handleSend}
+              disabled={!connected}
+            >
               发送
             </button>
           </div>

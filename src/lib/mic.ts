@@ -14,6 +14,7 @@ export interface DeviceState {
   permission: 'unknown' | 'granted' | 'denied'
   webCodecs: boolean
   outputVolume: number
+  ready: boolean
 }
 
 export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
@@ -26,6 +27,7 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     permission: 'unknown',
     webCodecs: typeof window !== 'undefined' ? webCodecsSupported() : false,
     outputVolume: 1,
+    ready: false,
   })
   const streamRef = useRef<MediaStream | null>(null)
   const analyserCtxRef = useRef<AudioContext | null>(null)
@@ -33,16 +35,7 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
   const pipelineRef = useRef<VoicePipeline | null>(null)
   const frameCbRef = useRef(onOpusFrame)
   frameCbRef.current = onOpusFrame
-
-  useEffect(() => {
-    return () => {
-      cancelAnimationFrame(rafRef.current)
-      streamRef.current?.getTracks().forEach((t) => t.stop())
-      void analyserCtxRef.current?.close()
-      pipelineRef.current?.close()
-      pipelineRef.current = null
-    }
-  }, [])
+  const selectedIdRef = useRef('')
 
   const pushIncoming = useCallback((opus: Uint8Array) => {
     if (!pipelineRef.current) {
@@ -60,16 +53,30 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
   }, [])
 
   async function refreshDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) return
     const list = await navigator.mediaDevices.enumerateDevices()
     const mics = list.filter((d) => d.kind === 'audioinput')
-    setState((s) => ({
-      ...s,
-      devices: mics,
-      selectedId: s.selectedId || mics[0]?.deviceId || '',
-    }))
+    setState((s) => {
+      const selectedId =
+        s.selectedId &&
+        mics.some((m) => m.deviceId === s.selectedId)
+          ? s.selectedId
+          : selectedIdRef.current && mics.some((m) => m.deviceId === selectedIdRef.current)
+            ? selectedIdRef.current
+            : mics[0]?.deviceId || ''
+      selectedIdRef.current = selectedId
+      return { ...s, devices: mics, selectedId, ready: true }
+    })
   }
 
   async function requestMic(deviceId?: string) {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setState((s) => ({
+        ...s,
+        error: '当前环境不支持麦克风（需要 HTTPS 或 localhost）',
+      }))
+      return
+    }
     try {
       streamRef.current?.getTracks().forEach((t) => t.stop())
       cancelAnimationFrame(rafRef.current)
@@ -85,7 +92,11 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
       })
       streamRef.current = stream
 
-      // Level meter (independent of voice pipeline)
+      const track = stream.getAudioTracks()[0]
+      const settings = track?.getSettings?.()
+      const resolvedId = deviceId || settings?.deviceId || ''
+      if (resolvedId) selectedIdRef.current = resolvedId
+
       const ctx = new AudioContext()
       void analyserCtxRef.current?.close()
       analyserCtxRef.current = ctx
@@ -107,7 +118,6 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
       }
       rafRef.current = requestAnimationFrame(tick)
 
-      // Voice encode path
       if (webCodecsSupported()) {
         if (!pipelineRef.current) pipelineRef.current = createVoicePipeline()
         await pipelineRef.current.startCapture(stream, (opus) => {
@@ -122,19 +132,21 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
         permission: 'granted',
         error: webCodecsSupported()
           ? null
-          : '已开麦做电平检测，但浏览器不支持 WebCodecs，无法上行语音',
-        selectedId: deviceId || s.selectedId,
+          : '麦克风已就绪，但浏览器不支持 WebCodecs，无法上行语音',
+        selectedId: resolvedId || s.selectedId,
       }))
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      const denied = /denied|NotAllowed/i.test(message)
+      const denied = /denied|NotAllowed|Permission/i.test(message)
       setState((s) => ({
         ...s,
         micOn: false,
         level: 0,
+        ready: true,
         permission: denied ? 'denied' : s.permission,
-        error: message,
+        error: denied ? '麦克风权限被拒绝，请在浏览器地址栏允许后刷新' : message,
       }))
+      await refreshDevices()
     }
   }
 
@@ -146,6 +158,42 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     setState((s) => ({ ...s, micOn: false, level: 0 }))
   }
 
+  const setMuted = useCallback((muted: boolean) => {
+    streamRef.current?.getAudioTracks().forEach((t) => {
+      t.enabled = !muted
+    })
+  }, [])
+
+  // Auto-detect + authorize mic when the page opens
+  useEffect(() => {
+    let cancelled = false
+    const boot = async () => {
+      await refreshDevices()
+      if (cancelled) return
+      // Unlock labels + start pipeline without a button click
+      await requestMic(selectedIdRef.current || undefined)
+      if (cancelled) return
+      // Some browsers need a second pass after permission
+      await refreshDevices()
+    }
+    void boot()
+
+    const onDeviceChange = () => {
+      void refreshDevices()
+    }
+    navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange)
+
+    return () => {
+      cancelled = true
+      navigator.mediaDevices?.removeEventListener?.('devicechange', onDeviceChange)
+      cancelAnimationFrame(rafRef.current)
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+      void analyserCtxRef.current?.close()
+      pipelineRef.current?.close()
+      pipelineRef.current = null
+    }
+  }, [])
+
   return {
     state,
     requestMic,
@@ -154,5 +202,6 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     setState,
     pushIncoming,
     setOutputVolume,
+    setMuted,
   }
 }
