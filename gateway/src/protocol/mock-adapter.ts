@@ -39,6 +39,7 @@ export function createMockAdapter(
           parentId: null,
           maxClients: 32,
           isDefault: true,
+          order: 1,
           clients: [],
         },
         {
@@ -47,6 +48,7 @@ export function createMockAdapter(
           parentId: null,
           maxClients: 16,
           isDefault: false,
+          order: 2,
           clients: [],
         },
         {
@@ -55,6 +57,7 @@ export function createMockAdapter(
           parentId: 2,
           maxClients: 8,
           isDefault: false,
+          order: 1,
           clients: [],
         },
         {
@@ -63,16 +66,31 @@ export function createMockAdapter(
           parentId: null,
           maxClients: 64,
           isDefault: false,
+          order: 3,
           clients: [],
         },
       ]
       selfId = 1
       clients = [
         { id: selfId, nickname, channelId: 1, isTalking: false, isMuted: false },
-        { id: 2, nickname: 'Alice', channelId: 1, isTalking: true, isMuted: false },
-        { id: 3, nickname: 'Bob', channelId: 3, isTalking: false, isMuted: true },
+        { id: 2, nickname: 'Alice', channelId: 1, isTalking: true, isMuted: false, country: 'CN' },
+        { id: 3, nickname: 'Bob', channelId: 3, isTalking: false, isMuted: true, country: 'US' },
       ]
       emitTree()
+      emit({
+        type: 'event_log',
+        event: 'connect',
+        nickname,
+        ts: Date.now(),
+      })
+      emit({
+        type: 'event_log',
+        event: 'join',
+        clientId: 2,
+        nickname: 'Alice',
+        channelId: 1,
+        ts: Date.now(),
+      })
       emit({
         type: 'message',
         from: 'Server',
@@ -101,6 +119,14 @@ export function createMockAdapter(
       }
       me.channelId = channelId
       emitTree()
+      emit({
+        type: 'event_log',
+        event: 'move',
+        clientId: selfId,
+        nickname,
+        channelId,
+        ts: Date.now(),
+      })
       emit({
         type: 'message',
         from: 'System',

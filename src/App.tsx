@@ -18,6 +18,7 @@ import {
   setSoundsEnabled,
   supportsSetSinkId,
 } from './lib/notify'
+import { getGatewayToken, setGatewayToken } from './lib/gateway-client'
 
 interface ChatMsg {
   from: string
@@ -41,6 +42,7 @@ interface ConnectionTab {
   channels: ChannelNode[]
   clients: ClientInfo[]
   messages: ChatMsg[]
+  logs: LogItem[]
   whisperClients: number[]
   whisperChannels: number[]
   lastError: string | null
@@ -56,6 +58,60 @@ interface ConnectionTab {
 
 const LS_FAV = 'tsweb:favorites'
 const LS_VOL = 'tsweb:volumes'
+const LS_COLLAPSED = 'tsweb:collapsed'
+
+const COUNTRY_FLAG: Record<string, string> = {
+  CN: '🇨🇳',
+  US: '🇺🇸',
+  JP: '🇯🇵',
+  KR: '🇰🇷',
+  DE: '🇩🇪',
+  GB: '🇬🇧',
+  FR: '🇫🇷',
+  TW: '🇹🇼',
+  HK: '🇭🇰',
+  SG: '🇸🇬',
+  RU: '🇷🇺',
+  AU: '🇦🇺',
+  CA: '🇨🇦',
+  BR: '🇧🇷',
+}
+
+function countryFlag(code?: string) {
+  if (!code) return null
+  return COUNTRY_FLAG[code.toUpperCase()] || null
+}
+
+interface LogItem {
+  event: 'join' | 'leave' | 'move' | 'connect' | 'disconnect' | 'poke'
+  clientId?: number
+  nickname?: string
+  channelId?: number
+  detail?: string
+  ts: number
+}
+
+const LOG_ICON: Record<LogItem['event'], string> = {
+  join: '→',
+  leave: '←',
+  move: '⇢',
+  connect: '⚡',
+  disconnect: '⛔',
+  poke: '👋',
+}
+
+function loadCollapsed(): Set<number> {
+  try {
+    const arr = JSON.parse(localStorage.getItem(LS_COLLAPSED) || '[]')
+    return new Set(Array.isArray(arr) ? arr.map(Number) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function saveCollapsed(set: Set<number>) {
+  localStorage.setItem(LS_COLLAPSED, JSON.stringify([...set]))
+}
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString(undefined, {
@@ -89,12 +145,16 @@ function ChannelListView({
   activeChannelId,
   onJoin,
   onClientMenu,
+  collapsed,
+  onToggleCollapse,
 }: {
   channels: ChannelNode[]
   selfId: number | null
   activeChannelId: number | null
   onJoin: (id: number) => void
   onClientMenu: (client: ClientInfo, e: React.MouseEvent) => void
+  collapsed: Set<number>
+  onToggleCollapse: (id: number) => void
 }) {
   if (!channels.length) {
     return <div className="empty">连接服务器后显示频道树</div>
@@ -108,46 +168,70 @@ function ChannelListView({
   }
 
   function render(parentId: number | null, depth = 0): ReactNode {
-    const list = (byParent.get(parentId) ?? []).slice().sort((a, b) => a.id - b.id)
-    return list.map((ch) => (
-      <li key={ch.id} style={{ marginLeft: depth ? depth * 10 : 0 }}>
-        <div className={`channel${activeChannelId === ch.id ? ' active' : ''}`}>
-          <button type="button" className="channel-head" onClick={() => onJoin(ch.id)}>
-            <span className="channel-name">
-              <span className="channel-icon">{ch.isDefault ? '⌂' : '#'}</span>
-              {ch.name}
-            </span>
-            <span className="channel-meta">
-              {ch.clients.length}/{ch.maxClients === 0 ? '∞' : ch.maxClients}
-            </span>
-          </button>
-          {ch.clients.length > 0 && (
-            <div className="clients">
-              {ch.clients.map((c) => (
-                <div
-                  key={c.id}
-                  className={`client${c.id === selfId ? ' me' : ''}`}
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    onClientMenu(c, e)
-                  }}
-                >
-                  <span className={`dot${c.isTalking ? ' talking' : ''}`} />
-                  {c.isCommander && <span title="频道指挥官">★</span>}
-                  {c.isAway && <span title="离开">🌙</span>}
-                  {c.isInputMuted && <span title="输入已闭麦">🎤</span>}
-                  {c.isOutputMuted && <span title="输出已闭麦">🔇</span>}
-                  <span>{c.nickname}</span>
-                  {c.id === selfId && <span className="channel-meta">（我）</span>}
-                  {c.isMuted && <span className="channel-meta">🔇</span>}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <ul className="tree">{render(ch.id, depth + 1)}</ul>
-      </li>
-    ))
+    const list = (byParent.get(parentId) ?? []).slice().sort((a, b) => {
+      const ao = a.order ?? a.id
+      const bo = b.order ?? b.id
+      if (ao !== bo) return ao - bo
+      return a.name.localeCompare(b.name)
+    })
+    return list.map((ch) => {
+      const isOpen = !collapsed.has(ch.id)
+      const hasKids = (byParent.get(ch.id) ?? []).length > 0
+      return (
+        <li key={ch.id} style={{ marginLeft: depth ? depth * 10 : 0 }}>
+          <div className={`channel${activeChannelId === ch.id ? ' active' : ''}`}>
+            <button type="button" className="channel-head" onClick={() => onJoin(ch.id)}>
+              <span className="channel-name">
+                {hasKids ? (
+                  <span
+                    className="channel-icon collapse-btn"
+                    title={isOpen ? '折叠' : '展开'}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onToggleCollapse(ch.id)
+                    }}
+                  >
+                    {isOpen ? '▾' : '▸'}
+                  </span>
+                ) : (
+                  <span className="channel-icon">{ch.isDefault ? '⌂' : '#'}</span>
+                )}
+                {ch.name}
+              </span>
+              <span className="channel-meta">
+                {ch.clients.length}/{ch.maxClients === 0 ? '∞' : ch.maxClients}
+              </span>
+            </button>
+            {isOpen && ch.clients.length > 0 && (
+              <div className="clients">
+                {ch.clients.map((c) => (
+                  <div
+                    key={c.id}
+                    className={`client${c.id === selfId ? ' me' : ''}`}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      onClientMenu(c, e)
+                    }}
+                  >
+                    <span className={`dot${c.isTalking ? ' talking' : ''}`} />
+                    {c.isCommander && <span title="频道指挥官">★</span>}
+                    {c.isAway && <span title="离开">🌙</span>}
+                    {c.isInputMuted && <span title="输入已闭麦">🎤</span>}
+                    {c.isOutputMuted && <span title="输出已闭麦">🔇</span>}
+                    {countryFlag(c.country) && (
+                      <span title={c.country}>{countryFlag(c.country)}</span>
+                    )}
+                    <span>{c.nickname}</span>
+                    {c.id === selfId && <span className="channel-meta">（我）</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {isOpen && <ul className="tree">{render(ch.id, depth + 1)}</ul>}
+        </li>
+      )
+    })
   }
 
   return <ul className="tree">{render(null)}</ul>
@@ -167,6 +251,7 @@ function emptyTab(partial?: Partial<ConnectionTab>): ConnectionTab {
     channels: [],
     clients: [],
     messages: [],
+    logs: [],
     whisperClients: [],
     whisperChannels: [],
     lastError: null,
@@ -212,6 +297,10 @@ export default function App() {
   const [sinkId, setSinkId] = useState(() => getStoredSinkId())
   const [soundsOn, setSoundsOn] = useState(() => getSoundsEnabled())
   const [canSink, setCanSink] = useState(() => supportsSetSinkId())
+  const [collapsed, setCollapsed] = useState(() => loadCollapsed())
+  const [sideTab, setSideTab] = useState<'chat' | 'events'>('chat')
+  const [gatewayToken, setGatewayTokenState] = useState(() => getGatewayToken())
+  const [authRequired, setAuthRequired] = useState(false)
 
   const mic = useMicrophone((opus) => {
     const tab = tabsRef.current.find((t) => t.id === activeIdRef.current)
@@ -247,6 +336,33 @@ export default function App() {
       .then((list) => {
         setOutputDevices(list.filter((d) => d.kind === 'audiooutput'))
         setCanSink(supportsSetSinkId())
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    void fetch('/config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfg: {
+        defaultHost?: string
+        defaultPort?: string
+        defaultNickname?: string
+        authRequired?: boolean
+      } | null) => {
+        if (!cfg) return
+        if (cfg.authRequired) setAuthRequired(true)
+        setTabs((list) =>
+          list.map((t, i) =>
+            i === 0 && !t.host && cfg.defaultHost
+              ? {
+                  ...t,
+                  host: cfg.defaultHost || t.host,
+                  port: cfg.defaultPort || t.port,
+                  nickname: cfg.defaultNickname || t.nickname,
+                }
+              : t,
+          ),
+        )
       })
       .catch(() => {})
   }, [])
@@ -350,6 +466,18 @@ export default function App() {
           }
           break
         }
+        case 'event_log':
+          setTabs((list) =>
+            list.map((t) =>
+              t.id === tabId
+                ? {
+                    ...t,
+                    logs: [...t.logs.slice(-200), { ...msg } as LogItem],
+                  }
+                : t,
+            ),
+          )
+          break
         case 'error':
           patchTab(tabId, { lastError: `${msg.code}: ${msg.message}` })
           break
@@ -601,6 +729,20 @@ export default function App() {
                   disabled={connected || active?.connState === 'connecting'}
                 />
               </label>
+              {(authRequired || gatewayToken) && (
+                <label>
+                  网关 Token
+                  <input
+                    type="password"
+                    value={gatewayToken}
+                    onChange={(e) => {
+                      setGatewayTokenState(e.target.value)
+                      setGatewayToken(e.target.value)
+                    }}
+                    placeholder={authRequired ? '必填' : '可选'}
+                  />
+                </label>
+              )}
               <div className="row">
                 {connected || active?.connState === 'connecting' ? (
                   <button
@@ -767,79 +909,131 @@ export default function App() {
               activeChannelId={activeChannelId}
               onJoin={handleJoin}
               onClientMenu={openMenu}
+              collapsed={collapsed}
+              onToggleCollapse={(id) => {
+                setCollapsed((prev) => {
+                  const next = new Set(prev)
+                  if (next.has(id)) next.delete(id)
+                  else next.add(id)
+                  saveCollapsed(next)
+                  return next
+                })
+              }}
             />
           </div>
         </section>
 
         <section className="panel chat-panel">
-          <h2>聊天</h2>
-          <div className="chat-log">
-            {!active?.messages.length && <div className="empty">连接后显示消息</div>}
-            {active?.messages.map((m, i) => (
-              <div key={`${m.ts}-${i}`} className="msg">
-                <span className="from">{m.from}</span>
-                {m.whisper && <span className="badge connecting">耳语</span>}{' '}
-                <span>{m.text}</span>
-                <span className="time">{formatTime(m.ts)}</span>
-              </div>
-            ))}
-          </div>
-          <div className="chat-input">
-            <select
-              value={active?.chatTarget || 'channel'}
-              onChange={(e) => {
-                if (!active) return
-                const v = e.target.value as 'channel' | 'server' | 'pm'
-                patchTab(active.id, { chatTarget: v })
-              }}
-              disabled={!connected}
-            >
-              <option value="channel">当前频道</option>
-              <option value="server">服务器消息</option>
-              <option value="pm">私聊</option>
-            </select>
-            {active?.chatTarget === 'pm' && (
-              <select
-                value={active.pmTarget ?? ''}
-                onChange={(e) => {
-                  if (!active) return
-                  patchTab(active.id, {
-                    pmTarget: e.target.value ? Number(e.target.value) : null,
-                  })
-                }}
-                disabled={!connected}
-              >
-                <option value="">选择对象</option>
-                {active.clients
-                  .filter((c) => c.id !== active.selfId)
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nickname}
-                    </option>
-                  ))}
-              </select>
-            )}
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  handleSend()
-                }
-              }}
-              placeholder={connected ? '输入消息，Enter 发送' : '请先连接'}
-              disabled={!connected}
-            />
+          <div className="side-tabs">
             <button
               type="button"
-              className="primary"
-              onClick={handleSend}
-              disabled={!connected}
+              className={`side-tab${sideTab === 'chat' ? ' active' : ''}`}
+              onClick={() => setSideTab('chat')}
             >
-              发送
+              聊天
+            </button>
+            <button
+              type="button"
+              className={`side-tab${sideTab === 'events' ? ' active' : ''}`}
+              onClick={() => setSideTab('events')}
+            >
+              事件
             </button>
           </div>
+          {sideTab === 'chat' ? (
+            <>
+              <div className="chat-log">
+                {!active?.messages.length && <div className="empty">连接后显示消息</div>}
+                {active?.messages.map((m, i) => (
+                  <div key={`${m.ts}-${i}`} className="msg">
+                    <span className="from">{m.from}</span>
+                    {m.whisper && <span className="badge connecting">耳语</span>}{' '}
+                    <span>{m.text}</span>
+                    <span className="time">{formatTime(m.ts)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="chat-input">
+                <select
+                  value={active?.chatTarget || 'channel'}
+                  onChange={(e) => {
+                    if (!active) return
+                    const v = e.target.value as 'channel' | 'server' | 'pm'
+                    patchTab(active.id, { chatTarget: v })
+                  }}
+                  disabled={!connected}
+                >
+                  <option value="channel">当前频道</option>
+                  <option value="server">服务器消息</option>
+                  <option value="pm">私聊</option>
+                </select>
+                {active?.chatTarget === 'pm' && (
+                  <select
+                    value={active.pmTarget ?? ''}
+                    onChange={(e) => {
+                      if (!active) return
+                      patchTab(active.id, {
+                        pmTarget: e.target.value ? Number(e.target.value) : null,
+                      })
+                    }}
+                    disabled={!connected}
+                  >
+                    <option value="">选择对象</option>
+                    {active.clients
+                      .filter((c) => c.id !== active.selfId)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nickname}
+                        </option>
+                      ))}
+                  </select>
+                )}
+                <input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleSend()
+                    }
+                  }}
+                  placeholder={connected ? '输入消息，Enter 发送' : '请先连接'}
+                  disabled={!connected}
+                />
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={handleSend}
+                  disabled={!connected}
+                >
+                  发送
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="chat-log">
+              {!active?.logs.length && (
+                <div className="empty">连接后显示进出/移动事件</div>
+              )}
+              {active?.logs.map((e, i) => (
+                <div key={`${e.ts}-${i}`} className="msg">
+                  <span className="from">{LOG_ICON[e.event]}</span>
+                  <span>
+                    {e.nickname || `#${e.clientId ?? '?'}`}
+                    {e.event === 'join' && ' 进入频道'}
+                    {e.event === 'leave' && ' 离开'}
+                    {e.event === 'move' &&
+                      ` 移动到频道 #${e.channelId ?? '?'}`}
+                    {e.event === 'connect' && ' 已连接'}
+                    {e.event === 'disconnect' && ' 断开'}
+                    {e.event === 'poke' && ' Poke'}
+                    {e.detail ? ` · ${e.detail}` : ''}
+                  </span>
+                  <span className="time">{formatTime(e.ts)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       </div>
 

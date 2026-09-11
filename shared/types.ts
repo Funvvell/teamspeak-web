@@ -4,6 +4,8 @@ export interface ChannelNode {
   parentId: number | null
   maxClients: number
   isDefault: boolean
+  /** Server channel_order for sibling sort; lower first */
+  order?: number
   clients: ClientInfo[]
 }
 
@@ -17,6 +19,8 @@ export interface ClientInfo {
   isAway?: boolean
   isInputMuted?: boolean
   isOutputMuted?: boolean
+  /** ISO country code when server provides it */
+  country?: string
 }
 
 export type ConnectionState =
@@ -55,6 +59,14 @@ export type ClientToGateway =
   | { type: 'whisper_clear' }
   | { type: 'poke'; targetId: number; message?: string }
 
+export type LogEventKind =
+  | 'join'
+  | 'leave'
+  | 'move'
+  | 'connect'
+  | 'disconnect'
+  | 'poke'
+
 export type GatewayToClient =
   | {
       type: 'status'
@@ -76,8 +88,16 @@ export type GatewayToClient =
       target: string
       text: string
       ts: number
-      /** true when delivered via whisper targeting */
       whisper?: boolean
+    }
+  | {
+      type: 'event_log'
+      event: LogEventKind
+      clientId?: number
+      nickname?: string
+      channelId?: number
+      detail?: string
+      ts: number
     }
   | { type: 'error'; code: string; message: string }
 

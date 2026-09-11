@@ -62,6 +62,7 @@ interface RawChannel {
   parentId: number | null
   maxClients: number
   isDefault: boolean
+  order?: number
 }
 
 function parseBool(v: string | undefined): boolean {
@@ -109,6 +110,7 @@ export function createTs3Adapter(
       parentId: ch.parentId,
       maxClients: ch.maxClients,
       isDefault: ch.isDefault,
+      order: ch.order,
       clients: clients.filter((c) => c.channelId === ch.id),
     }))
   }
@@ -180,6 +182,7 @@ export function createTs3Adapter(
           parentId: pid > 0 ? pid : null,
           maxClients: parseMaxClients(row.channel_maxclients),
           isDefault: parseBool(row.channel_flag_default),
+          order: toNumber(row.channel_order, id),
         }
       })
       loadedChannels = channels.length > 0
@@ -207,6 +210,7 @@ export function createTs3Adapter(
               parentId: pid > 0 ? pid : null,
               maxClients: parseMaxClients(row.channel_maxclients),
               isDefault: id === 1,
+              order: toNumber(row.channel_order, id),
             })
             miss = 0
           } else {
@@ -307,6 +311,9 @@ export function createTs3Adapter(
           if (row.client_output_muted === '1' || row.client_output_hardware === '0') {
             cl.isOutputMuted = true
           }
+          if (row.client_country && /^[A-Za-z]{2}$/.test(row.client_country)) {
+            cl.country = row.client_country.toUpperCase()
+          }
         }
       } catch {
         // restricted servers
@@ -330,6 +337,7 @@ export function createTs3Adapter(
             parentId: pid > 0 ? pid : null,
             maxClients: parseMaxClients(row.channel_maxclients),
             isDefault: false,
+            order: toNumber(row.channel_order, selfChannelId),
           })
         }
       } catch {
@@ -380,11 +388,28 @@ export function createTs3Adapter(
     c.on('clientEnter', (info) => {
       upsertClient(info)
       emitState()
+      emit({
+        type: 'event_log',
+        event: 'join',
+        clientId: info.id,
+        nickname: info.nickname,
+        channelId: Number(info.channelID),
+        ts: Date.now(),
+      })
     })
 
     c.on('clientLeave', (ev) => {
+      const gone = clients.find((x) => x.id === ev.id)
       removeClient(ev.id)
       emitState()
+      emit({
+        type: 'event_log',
+        event: 'leave',
+        clientId: ev.id,
+        nickname: gone?.nickname,
+        detail: ev.reasonMsg || undefined,
+        ts: Date.now(),
+      })
     })
 
     c.on('clientMoved', (ev) => {
@@ -402,6 +427,14 @@ export function createTs3Adapter(
         })
       }
       emitState()
+      emit({
+        type: 'event_log',
+        event: 'move',
+        clientId: ev.id,
+        nickname: cl?.nickname || ev.invokerName,
+        channelId: Number(ev.targetChannelID),
+        ts: Date.now(),
+      })
     })
 
     c.on('poked', (p) => {

@@ -5,10 +5,20 @@ import type {
 
 export type WsStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
 
+const LS_TOKEN = 'tsweb:token'
+
+export function getGatewayToken() {
+  return localStorage.getItem(LS_TOKEN) || ''
+}
+
+export function setGatewayToken(token: string) {
+  if (token) localStorage.setItem(LS_TOKEN, token)
+  else localStorage.removeItem(LS_TOKEN)
+}
+
 export function createGatewayClient(handlers: {
   onMessage: (msg: GatewayToClient) => void
   onSocketStatus: (s: WsStatus, detail?: string) => void
-  /** Binary audio frame from gateway */
   onAudioFrame?: (data: ArrayBuffer) => void
 }) {
   let ws: WebSocket | null = null
@@ -30,7 +40,9 @@ export function createGatewayClient(handlers: {
 
   function connectSocket() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const url = `${proto}://${location.host}/ws`
+    const token = getGatewayToken()
+    const qs = token ? `?token=${encodeURIComponent(token)}` : ''
+    const url = `${proto}://${location.host}/ws${qs}`
     handlers.onSocketStatus('connecting')
     ws = new WebSocket(url)
     ws.binaryType = 'arraybuffer'

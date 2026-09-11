@@ -92,11 +92,22 @@ export class Session {
           selfId: info.selfId,
         })
         this.status('connected')
+        this.send({
+          type: 'event_log',
+          event: 'connect',
+          nickname: msg.nickname,
+          ts: Date.now(),
+        })
         return
       }
       case 'disconnect': {
         await this.teardownAdapter()
         this.status('disconnected')
+        this.send({
+          type: 'event_log',
+          event: 'disconnect',
+          ts: Date.now(),
+        })
         return
       }
       case 'join_channel': {
