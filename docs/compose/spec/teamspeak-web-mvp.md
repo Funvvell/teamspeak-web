@@ -102,13 +102,12 @@ interface ClientInfo {
 |------|------|------|
 | ReSpeak/tsclientlib | Rust | 最完整；需额外 Rust 进程与 JSON 桥 |
 | teamspeak-js 及其 fork | Node | 可直接放网关内；社区维护程度需评估 |
+| **@honeybbq/teamspeak-client** | **Node/TS** | **已采用**：纯 TS 客户端协议（非 ServerQuery），MIT，含 Opus 语音 API |
 | 自研协议 | — | 工作量过大，MVP 不做 |
 
-**MVP 决策**：优先评估 npm 上可用的 Node TS3 客户端库（如 `ts3-nodejs-library` / 相关 fork）；若语音支持不足，则：
-1. 控制面（连接/频道/聊天）用 Node 库；
-2. 语音面第二阶段接入 `tsclientlib` 独立进程或 Opus 编解码桥。
+**MVP 决策**：默认使用 `@honeybbq/teamspeak-client` 实现 `TsProtocolAdapter`；`PROTOCOL=mock` 保留 Mock 适配器便于无服务器调试。
 
-若 MVP 阶段无法在本机完成真实协议对接，交付「可运行的 UI + 网关骨架 + mock 协议适配层」，接口与消息契约按本设计锁定，真实协议替换只改 `gateway/src/protocol/`。
+真实协议字段注意：`channellist` 使用 `cid`/`cpid`（不是 `channel_id`/`pid`）；`channel_maxclients=-1` 表示不限。
 
 ### 语音路径（MVP 目标）
 
@@ -139,8 +138,8 @@ MVP 可接受：先完成控制面 + 文字聊天 + 麦克风权限与设备选�
 - [x] T1:  monorepo 骨架 — acceptance: 根目录 `index.html` + `src/` + `gateway/`；`npm run build` + `npm start` 在 8080 提供静态页与 `/ws` (covers: S2)
 - [x] T2: WebSocket 消息契约与类型定义 — acceptance: `shared/types.ts` 导出 connect/status/channel_tree 等消息类型，web 与 gateway 共用 (covers: S2)
 - [x] T3: Gateway 会话管理与 mock 协议适配 — acceptance: 客户端 connect 后收到 mock 频道树与假成员，可 join_channel / send_message 回显 (covers: S2; depends: T1, T2)
-- [ ] T4: 真实 TS3 协议适配（Node 库） — acceptance: 对任意可达 TS3 服务器完成连接、频道树同步、频道文字聊天 (covers: S2; depends: T3)
+- [x] T4: 真实 TS3 协议适配（Node 库） — acceptance: 对任意可达 TS3 服务器完成连接、频道树同步、频道文字聊天；库：`@honeybbq/teamspeak-client`；证据：`scripts/smoke-ts3-connect.ts` 对公共服 `PASS` (covers: S2; depends: T3)
 - [x] T5: Web UI — 连接表单/频道树/聊天/状态 — acceptance: 浏览器打开 index.html 入口（或 Vite 预览），完成连接→树刷新→聊天闭环 (covers: S2; depends: T2)
 - [x] T6: 麦克风与输出设备 — acceptance: 可选设备、开闭麦、本地电平指示；权限拒绝有提示 (covers: S2; depends: T5)
-- [ ] T7: 语音帧通路 — acceptance: 网关与浏览器间 binary WS 传音频帧；若协议库支持则接入 TS，否则标记为 protocol adapter 接口完成 (covers: S2; depends: T4, T6)
+- [ ] T7: 语音帧通路 — acceptance: 网关 binary WS 收发已接通（`[1][codec][payload]` ↔ TS `sendVoice`/`voiceData`）；浏览器侧 Opus 编解码尚未完成 (covers: S2; depends: T4, T6)
 - [x] T8: 验证与文档 — acceptance: `npm test`（typecheck）通过；README 写清启动步骤与架构图 (covers: S1, S2; depends: T1-T7)

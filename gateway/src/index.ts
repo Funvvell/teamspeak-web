@@ -5,12 +5,18 @@ import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
 import { Session } from './session'
 import { createMockAdapter } from './protocol/mock-adapter'
+import { createTs3Adapter } from './protocol/ts3-adapter'
+import type { AdapterFactory } from './protocol/adapter'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '../..')
 const DIST = path.join(ROOT, 'dist')
 const PORT = Number(process.env.PORT || 8080)
 const HOST = process.env.HOST || '127.0.0.1'
+const PROTOCOL = (process.env.PROTOCOL || 'ts3').toLowerCase()
+
+const createAdapter: AdapterFactory =
+  PROTOCOL === 'mock' ? createMockAdapter : createTs3Adapter
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -49,9 +55,9 @@ const server = http.createServer(serveStatic)
 const wss = new WebSocketServer({ server, path: '/ws' })
 
 wss.on('connection', (ws) => {
-  const session = new Session(ws, createMockAdapter)
-  ws.on('message', (raw) => {
-    session.handleRaw(String(raw))
+  const session = new Session(ws, createAdapter)
+  ws.on('message', (raw, isBinary) => {
+    session.handleRaw(isBinary ? (raw as Buffer) : String(raw))
   })
   ws.on('close', () => {
     void session.dispose()
@@ -62,7 +68,9 @@ wss.on('connection', (ws) => {
 })
 
 server.listen(PORT, HOST, () => {
-  console.log(`[gateway] http://${HOST}:${PORT}  ws://${HOST}:${PORT}/ws`)
+  console.log(
+    `[gateway] protocol=${PROTOCOL}  http://${HOST}:${PORT}  ws://${HOST}:${PORT}/ws`,
+  )
   if (!fs.existsSync(DIST)) {
     console.log(
       '[gateway] dist/ missing — frontend build not found (dev mode: open Vite on :5173)',

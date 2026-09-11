@@ -6,6 +6,8 @@ import type {
 } from '../../shared/types'
 import type { AdapterFactory } from './protocol/adapter'
 
+const OPCODE_AUDIO = 1
+
 export class Session {
   private adapter: ReturnType<AdapterFactory> | null = null
 
@@ -24,7 +26,21 @@ export class Session {
     this.send({ type: 'status', state, message })
   }
 
-  handleRaw(data: string) {
+  handleRaw(data: string | Buffer | ArrayBuffer | Buffer[]) {
+    // Binary frames: [opcode:u8=1][codec:u8][opus payload...]
+    if (typeof data !== 'string') {
+      const buf = Buffer.isBuffer(data)
+        ? data
+        : Array.isArray(data)
+          ? Buffer.concat(data)
+          : Buffer.from(data as ArrayBuffer)
+      if (buf.length >= 2 && buf[0] === OPCODE_AUDIO && this.adapter?.sendVoice) {
+        const codec = buf[1]
+        this.adapter.sendVoice(buf.subarray(2), codec)
+      }
+      return
+    }
+
     let msg: ClientToGateway
     try {
       msg = JSON.parse(data) as ClientToGateway
@@ -45,6 +61,13 @@ export class Session {
         await this.teardownAdapter()
         this.status('connecting', `Connecting to ${msg.host}:${msg.port}`)
         this.adapter = this.createAdapter((m) => this.send(m))
+        if (this.adapter.onVoice) {
+          this.adapter.onVoice((frame) => {
+            if (this.ws.readyState !== this.ws.OPEN) return
+            const header = Buffer.from([OPCODE_AUDIO, frame.codec & 0xff])
+            this.ws.send(Buffer.concat([header, Buffer.from(frame.data)]))
+          })
+        }
         const info = await this.adapter.connect({
           host: msg.host,
           port: msg.port,
@@ -72,7 +95,7 @@ export class Session {
       }
       case 'send_message': {
         if (!this.adapter) throw new Error('Not connected')
-        this.adapter.sendText(msg.target, msg.text)
+        await this.adapter.sendText(msg.target, msg.text)
         return
       }
       case 'mic': {

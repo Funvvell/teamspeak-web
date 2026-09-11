@@ -69,7 +69,7 @@ function ChannelListView({
               {ch.name}
             </span>
             <span className="channel-meta">
-              {ch.clients.length}/{ch.maxClients}
+              {ch.clients.length}/{ch.maxClients === 0 ? '∞' : ch.maxClients}
             </span>
           </button>
           {ch.clients.length > 0 && (
@@ -234,7 +234,7 @@ export default function App() {
           WS: {wsStatus === 'open' ? '在线' : wsStatus === 'connecting' ? '握手中' : wsStatus}
         </span>
         <span className="hint" style={{ marginLeft: 'auto' }}>
-          MVP · mock 协议适配器（架构可替换为真实 TS3）
+          TS3 协议网关 · 连接任意可达服务器
         </span>
       </header>
 
@@ -296,8 +296,7 @@ export default function App() {
               )}
               <p className="hint">
                 浏览器无法直接使用 TS 的 UDP 语音协议。本项目通过本地网关桥接：
-                Web ↔ WebSocket ↔ Gateway ↔ TS3。
-                当前接入 mock 适配器，用于验证 UI 与消息契约。
+                Web ↔ WebSocket ↔ Gateway ↔ TS3（真实协议栈）。
               </p>
             </div>
           </div>

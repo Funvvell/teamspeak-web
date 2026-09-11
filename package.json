@@ -11,9 +11,12 @@
     "build:web": "vite build",
     "start": "tsx gateway/src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p gateway/tsconfig.json --noEmit",
-    "test": "npm run typecheck"
+    "test": "npm run typecheck",
+    "smoke:ws": "node scripts/smoke-ws.mjs",
+    "smoke:ts3": "node --import tsx scripts/smoke-ts3-connect.ts"
   },
   "dependencies": {
+    "@honeybbq/teamspeak-client": "^0.2.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "ws": "^8.18.0"

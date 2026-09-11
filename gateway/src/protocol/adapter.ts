@@ -4,6 +4,12 @@ import type {
   GatewayToClient,
 } from '../../../shared/types'
 
+export interface VoiceFrame {
+  clientId: number
+  codec: number
+  data: Uint8Array
+}
+
 export interface TsProtocolAdapter {
   connect(opts: {
     host: string
@@ -16,9 +22,12 @@ export interface TsProtocolAdapter {
   sendText(
     target: 'channel' | 'server' | { client: number },
     text: string,
-  ): void
+  ): void | Promise<void>
   getChannelTree(): ChannelNode[]
   getClients(): ClientInfo[]
+  /** Optional real-voice path */
+  sendVoice?(data: Uint8Array, codec?: number): void
+  onVoice?(handler: (frame: VoiceFrame) => void): () => void
 }
 
 export type AdapterFactory = (
