@@ -281,7 +281,9 @@ export function createTs3Adapter(
     async connect({ host, port, nickname: nick, password }) {
       nickname = nick || 'Guest'
       const identity = loadOrCreateIdentity()
-      const addr = formatAddr(host.trim(), port || 9987)
+      const hostTrim = host.trim()
+      const portNum = port || 9987
+      const addr = formatAddr(hostTrim, portNum)
 
       client = new Client(identity, addr, nickname, {
         logger: noopLogger,
@@ -290,8 +292,26 @@ export function createTs3Adapter(
       wireEvents(client)
 
       await client.connect()
-      // High security levels may require wait; 20s covers RSA puzzle + upgrade
-      await client.waitConnected(AbortSignal.timeout(20_000))
+      // Some servers take long on RSA puzzle / identity check
+      const timeoutMs = Number(process.env.TS_CONNECT_TIMEOUT_MS || 45_000)
+      try {
+        await client.waitConnected(AbortSignal.timeout(timeoutMs))
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : String(err)
+        const isTimeout =
+          /timeout|aborted/i.test(raw) ||
+          (err instanceof Error && err.name === 'TimeoutError')
+        if (isTimeout) {
+          throw new Error(
+            `连接 ${addr} 超时（${Math.round(timeoutMs / 1000)}s）。` +
+              `请检查：1) 地址/端口是否为 TS3 语音口（默认 UDP 9987，不是 ServerQuery 10011）；` +
+              `2) 服务器是否在线且允许从本机访问；` +
+              `3) 防火墙/安全组是否放行 UDP；` +
+              `4) 是否需要服务器密码。`,
+          )
+        }
+        throw err
+      }
 
       selfId = client.clientID()
       selfChannelId = Number(client.channelID())

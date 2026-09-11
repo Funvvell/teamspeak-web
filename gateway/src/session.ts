@@ -50,6 +50,7 @@ export class Session {
     }
     void this.handle(msg).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
+      console.error('[session]', message)
       this.send({ type: 'error', code: 'handler', message })
       this.status('error', message)
     })
