@@ -8,6 +8,14 @@ import { createMockAdapter } from './protocol/mock-adapter'
 import { createTs3Adapter } from './protocol/ts3-adapter'
 import type { AdapterFactory } from './protocol/adapter'
 
+// Keep the gateway alive on unexpected errors
+process.on('uncaughtException', (err) => {
+  console.error('[gateway] uncaughtException', err)
+})
+process.on('unhandledRejection', (err) => {
+  console.error('[gateway] unhandledRejection', err)
+})
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '../..')
 const DIST = path.join(ROOT, 'dist')

@@ -60,6 +60,9 @@ export class Session {
     switch (msg.type) {
       case 'connect': {
         await this.teardownAdapter()
+        console.log(
+          `[session] connect ${msg.host}:${msg.port} as ${msg.nickname}`,
+        )
         this.status('connecting', `Connecting to ${msg.host}:${msg.port}`)
         this.adapter = this.createAdapter((m) => this.send(m))
         if (this.adapter.onVoice) {
@@ -75,6 +78,9 @@ export class Session {
           nickname: msg.nickname,
           password: msg.password,
         })
+        console.log(
+          `[session] connected ${msg.host}:${msg.port} name=${info.name} selfId=${info.selfId}`,
+        )
         this.send({
           type: 'server_info',
           name: info.name,
