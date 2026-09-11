@@ -368,6 +368,9 @@ export default function App() {
                   </button>
                 )}
               </div>
+              {connState === 'connecting' && (
+                <div className="ok-box">正在连接 {host}:{port} … 受限服务器约需 5–15 秒，请稍候。</div>
+              )}
               {lastError && <div className="error-box">{lastError}</div>}
               {connected && welcome && !lastError && (
                 <div className="ok-box">{welcome}</div>
