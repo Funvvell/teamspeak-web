@@ -71,6 +71,10 @@ function parseMaxClients(v: string | undefined): number {
   return n < 0 ? 0 : n
 }
 
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
 /**
  * Real TeamSpeak 3 protocol adapter via @honeybbq/teamspeak-client.
  * Speaks the actual client UDP protocol (ECDH/RSA/EAX), not ServerQuery.
@@ -152,34 +156,137 @@ export function createTs3Adapter(
   }
 
   async function refreshFromServer(c: Client) {
-    const rawChannels = await c.execCommandWithResponse('channellist -flags')
-    const rawClients = await listClients(c)
+    // --- channels ---
+    let loadedChannels = false
+    try {
+      const rawChannels = await c.execCommandWithResponse('channellist -flags')
+      channels = rawChannels.map((row) => {
+        const pid = toNumber(row.cpid ?? row.pid, 0)
+        const id = toNumber(row.cid ?? row.channel_id)
+        return {
+          id,
+          name: row.channel_name ?? '',
+          parentId: pid > 0 ? pid : null,
+          maxClients: parseMaxClients(row.channel_maxclients),
+          isDefault: parseBool(row.channel_flag_default),
+        }
+      })
+      loadedChannels = channels.length > 0
+    } catch {
+      // Restricted servers deny channellist (or flood-protect it)
+    }
 
-    // Field names from TS3 channellist: cid, cpid, channel_name, channel_maxclients
-    channels = rawChannels.map((row) => {
-      const pid = toNumber(row.cpid ?? row.pid, 0)
-      const id = toNumber(row.cid ?? row.channel_id)
-      return {
-        id,
-        name: row.channel_name ?? '',
-        parentId: pid > 0 ? pid : null,
-        maxClients: parseMaxClients(row.channel_maxclients),
-        isDefault: parseBool(row.channel_flag_default),
+    // Rate-limited probe — many servers ban floods (error 524)
+    if (!loadedChannels) {
+      const maxScan = Number(process.env.TS_CHANNEL_SCAN_MAX || 25)
+      const delayMs = Number(process.env.TS_CHANNEL_SCAN_DELAY_MS || 200)
+      const stopAfterMiss = Number(process.env.TS_CHANNEL_SCAN_MISS || 10)
+      const found: RawChannel[] = []
+      let miss = 0
+      for (let id = 1; id <= maxScan && miss < stopAfterMiss; id++) {
+        await sleep(delayMs)
+        try {
+          const rows = await c.execCommandWithResponse(`channelinfo cid=${id}`, 3000)
+          const row = rows[0]
+          if (row?.channel_name) {
+            const pid = toNumber(row.pid ?? row.cpid, 0)
+            found.push({
+              id,
+              name: row.channel_name,
+              parentId: pid > 0 ? pid : null,
+              maxClients: parseMaxClients(row.channel_maxclients),
+              isDefault: id === 1,
+            })
+            miss = 0
+          } else {
+            miss += 1
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          if (/flood/i.test(msg)) {
+            // Back off immediately; keep what we have
+            break
+          }
+          miss += 1
+        }
       }
-    })
+      channels = found
+    }
 
     if (channels.length > 0 && !channels.some((ch) => ch.isDefault)) {
       const lobby = channels.find((ch) => ch.id === 1) ?? channels[0]
       if (lobby) lobby.isDefault = true
     }
 
-    clients = rawClients
-      .filter((cl) => cl.type === 0 || cl.id === selfId) // skip server queries
-      .map(mapClient)
+    // --- clients ---
+    await sleep(80)
+    try {
+      const rawClients = await listClients(c)
+      const mapped = rawClients
+        .filter((cl) => cl.type === 0 || cl.id === selfId)
+        .map(mapClient)
+      if (mapped.length > 0) {
+        for (const m of mapped) {
+          const idx = clients.findIndex((x) => x.id === m.id)
+          if (idx >= 0) clients[idx] = { ...clients[idx], ...m }
+          else clients.push(m)
+        }
+      }
+    } catch {
+      // keep event-driven clients
+    }
 
-    if (selfId) {
-      const me = rawClients.find((cl) => cl.id === selfId)
-      if (me) selfChannelId = Number(me.channelID)
+    // --- self via whoami ---
+    await sleep(80)
+    try {
+      const who = await c.execCommandWithResponse('whoami')
+      const row = who[0]
+      if (row) {
+        if (row.client_id) selfId = toNumber(row.client_id, selfId)
+        if (row.client_channel_id) {
+          selfChannelId = toNumber(row.client_channel_id, selfChannelId)
+        }
+        const nick = row.client_nickname || nickname
+        const me = clients.find((x) => x.id === selfId)
+        if (me) {
+          me.channelId = selfChannelId
+          me.nickname = nick
+        } else {
+          clients.push({
+            id: selfId,
+            nickname: nick,
+            channelId: selfChannelId,
+            isTalking: false,
+            isMuted: false,
+          })
+        }
+      }
+    } catch {
+      // optional
+    }
+
+    // Ensure we know at least the channel we are in
+    if (selfChannelId > 0 && !channels.some((ch) => ch.id === selfChannelId)) {
+      await sleep(80)
+      try {
+        const rows = await c.execCommandWithResponse(
+          `channelinfo cid=${selfChannelId}`,
+          3000,
+        )
+        const row = rows[0]
+        if (row?.channel_name) {
+          const pid = toNumber(row.pid, 0)
+          channels.push({
+            id: selfChannelId,
+            name: row.channel_name,
+            parentId: pid > 0 ? pid : null,
+            maxClients: parseMaxClients(row.channel_maxclients),
+            isDefault: false,
+          })
+        }
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -314,13 +421,23 @@ export function createTs3Adapter(
       }
 
       selfId = client.clientID()
-      selfChannelId = Number(client.channelID())
+      selfChannelId = Number(client.channelID()) || 0
 
+      // Welcome notifications + flood window: give the server a moment
+      await sleep(Number(process.env.TS_WELCOME_WAIT_MS || 1500))
       await refreshFromServer(client)
       emitState()
 
       let serverName = addr
       let welcome = 'Connected via real TeamSpeak 3 protocol'
+      try {
+        const info = await client.execCommandWithResponse('whoami')
+        const row = info[0]
+        // whoami is more reliable than serverinfo on restricted servers
+        if (row?.virtualserver_name) serverName = row.virtualserver_name
+      } catch {
+        // optional
+      }
       try {
         const info = await client.execCommandWithResponse('serverinfo')
         const row = info[0]
@@ -329,7 +446,7 @@ export function createTs3Adapter(
           welcome = row.virtualserver_welcomemessage.replace(/\\s/g, ' ')
         }
       } catch {
-        // optional
+        // optional on restricted servers
       }
 
       return { name: serverName, welcome, selfId }
