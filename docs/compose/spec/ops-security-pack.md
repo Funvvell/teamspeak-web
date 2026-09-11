@@ -1,6 +1,6 @@
 ---
 feature: ops-security-pack
-status: designed
+status: in-progress
 updated: 2026-09-12
 branch: master
 commits: (pending)
@@ -44,7 +44,7 @@ commits: (pending)
 
 ## Tasks
 
-- [ ] T1: 网关 token 校验 + /config + /health — (covers: S2)
-- [ ] T2: 前端 token 存储与 WS 携带 — (covers: S2; depends: T1)
-- [ ] T3: 默认服务器预填 — (covers: S2; depends: T1)
-- [ ] T4: 验证 typecheck/build + smoke — (covers: S1, S2; depends: T1-T3)
+- [x] T1: 网关 token 校验 + /config + /health — health/config 返回 JSON (covers: S2)
+- [x] T2: 前端 token 存储与 WS 携带 (covers: S2; depends: T1)
+- [x] T3: 默认服务器预填 (covers: S2; depends: T1)
+- [x] T4: 验证 typecheck/build PASS + gateway connect smoke PASS (covers: S1, S2; depends: T1-T3)

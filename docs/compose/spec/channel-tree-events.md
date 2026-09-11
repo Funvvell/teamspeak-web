@@ -1,6 +1,6 @@
 ---
 feature: channel-tree-events
-status: designed
+status: in-progress
 updated: 2026-09-12
 branch: master
 commits: (pending)
@@ -55,8 +55,8 @@ commits: (pending)
 
 ## Tasks
 
-- [ ] T1: 协议 event_log 消息 + adapter 发出 join/leave/move — (covers: S2)
-- [ ] T2: 频道 order 排序 + 折叠 UI/持久化 — (covers: S2)
-- [ ] T3: 事件日志面板（聊天/事件切换）— (covers: S2; depends: T1)
-- [ ] T4: 国家旗（可选字段）— (covers: S2)
-- [ ] T5: typecheck/build + 网关 smoke — (covers: S1, S2; depends: T1-T4)
+- [x] T1: 协议 event_log 消息 + adapter 发出 join/leave/move — smoke 收到 event_log (covers: S2)
+- [x] T2: 频道 order 排序 + 折叠 UI/持久化 (covers: S2)
+- [x] T3: 事件日志面板（聊天/事件切换）(covers: S2; depends: T1)
+- [x] T4: 国家旗（可选字段）(covers: S2)
+- [x] T5: typecheck/build PASS + 网关 smoke PASS (covers: S1, S2; depends: T1-T4)
