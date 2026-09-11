@@ -141,5 +141,5 @@ MVP 可接受：先完成控制面 + 文字聊天 + 麦克风权限与设备选�
 - [x] T4: 真实 TS3 协议适配（Node 库） — acceptance: 对任意可达 TS3 服务器完成连接、频道树同步、频道文字聊天；库：`@honeybbq/teamspeak-client`；证据：`scripts/smoke-ts3-connect.ts` 对公共服 `PASS` (covers: S2; depends: T3)
 - [x] T5: Web UI — 连接表单/频道树/聊天/状态 — acceptance: 浏览器打开 index.html 入口（或 Vite 预览），完成连接→树刷新→聊天闭环 (covers: S2; depends: T2)
 - [x] T6: 麦克风与输出设备 — acceptance: 可选设备、开闭麦、本地电平指示；权限拒绝有提示 (covers: S2; depends: T5)
-- [ ] T7: 语音帧通路 — acceptance: 网关 binary WS 收发已接通（`[1][codec][payload]` ↔ TS `sendVoice`/`voiceData`）；浏览器侧 Opus 编解码尚未完成 (covers: S2; depends: T4, T6)
+- [x] T7: 语音帧通路 — acceptance: 网关 binary WS `[1][codec][opus]` ↔ TS `sendVoice`/`voiceData`；浏览器 WebCodecs Opus 编码上行 + 解码播放（Chrome/Edge）；mock 回声验证 `smoke-ws-binary` PASS (covers: S2; depends: T4, T6)
 - [x] T8: 验证与文档 — acceptance: `npm test`（typecheck）通过；README 写清启动步骤与架构图 (covers: S1, S2; depends: T1-T7)

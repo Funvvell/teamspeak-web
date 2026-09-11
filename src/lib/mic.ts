@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  createVoicePipeline,
+  webCodecsSupported,
+  type VoicePipeline,
+} from './voice-pipeline'
 
 export interface DeviceState {
   devices: MediaDeviceInfo[]
@@ -7,9 +12,11 @@ export interface DeviceState {
   level: number
   error: string | null
   permission: 'unknown' | 'granted' | 'denied'
+  webCodecs: boolean
+  outputVolume: number
 }
 
-export function useMicrophone() {
+export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
   const [state, setState] = useState<DeviceState>({
     devices: [],
     selectedId: '',
@@ -17,17 +24,39 @@ export function useMicrophone() {
     level: 0,
     error: null,
     permission: 'unknown',
+    webCodecs: typeof window !== 'undefined' ? webCodecsSupported() : false,
+    outputVolume: 1,
   })
   const streamRef = useRef<MediaStream | null>(null)
-  const ctxRef = useRef<AudioContext | null>(null)
+  const analyserCtxRef = useRef<AudioContext | null>(null)
   const rafRef = useRef(0)
+  const pipelineRef = useRef<VoicePipeline | null>(null)
+  const frameCbRef = useRef(onOpusFrame)
+  frameCbRef.current = onOpusFrame
 
   useEffect(() => {
     return () => {
       cancelAnimationFrame(rafRef.current)
       streamRef.current?.getTracks().forEach((t) => t.stop())
-      void ctxRef.current?.close()
+      void analyserCtxRef.current?.close()
+      pipelineRef.current?.close()
+      pipelineRef.current = null
     }
+  }, [])
+
+  const pushIncoming = useCallback((opus: Uint8Array) => {
+    if (!pipelineRef.current) {
+      pipelineRef.current = createVoicePipeline()
+    }
+    pipelineRef.current.pushIncoming(opus)
+  }, [])
+
+  const setOutputVolume = useCallback((v: number) => {
+    setState((s) => ({ ...s, outputVolume: v }))
+    if (!pipelineRef.current) {
+      pipelineRef.current = createVoicePipeline()
+    }
+    pipelineRef.current.setOutputVolume(v)
   }, [])
 
   async function refreshDevices() {
@@ -43,19 +72,28 @@ export function useMicrophone() {
   async function requestMic(deviceId?: string) {
     try {
       streamRef.current?.getTracks().forEach((t) => t.stop())
+      cancelAnimationFrame(rafRef.current)
+
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+        audio: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       })
       streamRef.current = stream
+
+      // Level meter (independent of voice pipeline)
       const ctx = new AudioContext()
-      ctxRef.current?.close()
-      ctxRef.current = ctx
+      void analyserCtxRef.current?.close()
+      analyserCtxRef.current = ctx
       const source = ctx.createMediaStreamSource(stream)
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 512
       source.connect(analyser)
       const data = new Uint8Array(analyser.frequencyBinCount)
-
       const tick = () => {
         analyser.getByteTimeDomainData(data)
         let sum = 0
@@ -67,15 +105,24 @@ export function useMicrophone() {
         setState((s) => ({ ...s, level: Math.min(1, rms * 4) }))
         rafRef.current = requestAnimationFrame(tick)
       }
-      cancelAnimationFrame(rafRef.current)
       rafRef.current = requestAnimationFrame(tick)
+
+      // Voice encode path
+      if (webCodecsSupported()) {
+        if (!pipelineRef.current) pipelineRef.current = createVoicePipeline()
+        await pipelineRef.current.startCapture(stream, (opus) => {
+          frameCbRef.current?.(opus)
+        })
+      }
 
       await refreshDevices()
       setState((s) => ({
         ...s,
         micOn: true,
         permission: 'granted',
-        error: null,
+        error: webCodecsSupported()
+          ? null
+          : '已开麦做电平检测，但浏览器不支持 WebCodecs，无法上行语音',
         selectedId: deviceId || s.selectedId,
       }))
     } catch (err) {
@@ -95,8 +142,17 @@ export function useMicrophone() {
     cancelAnimationFrame(rafRef.current)
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
+    pipelineRef.current?.stopCapture()
     setState((s) => ({ ...s, micOn: false, level: 0 }))
   }
 
-  return { state, requestMic, stopMic, refreshDevices, setState }
+  return {
+    state,
+    requestMic,
+    stopMic,
+    refreshDevices,
+    setState,
+    pushIncoming,
+    setOutputVolume,
+  }
 }

@@ -59,22 +59,27 @@ npm run dev
 - 频道树、成员列表、进出/换频道事件
 - 频道 / 服务器文字聊天、Poke 提示
 - 麦克风设备选择与电平（本地）
+- **语音收发**：WebCodecs Opus 编码上行 / 解码播放（Chrome/Edge；需 HTTPS 或 localhost）
+- 输出音量滑条
 - 身份持久化：`gateway/data/identity.txt`
-- Mock 模式便于无服务器调试 UI
+- Mock 模式便于无服务器调试 UI（含语音回声）
 
-## 验证真实协议
+## 验证
 
 ```bash
-node --import tsx scripts/smoke-ts3-connect.ts <ts-host> [port]
+npm run typecheck
+npm run smoke:voice
+npm run smoke:ts3 -- <ts-host> [port]   # 真实协议
+# 另开终端：
+PROTOCOL=mock npm start
+npm run smoke:ws                        # WS 控制面
 ```
-
-示例输出（公共测试服）：连接成功、频道树、频道消息发送 `PASS`。
 
 ## WebSocket 契约（摘要）
 
 客户端 → 网关：`connect` / `disconnect` / `join_channel` / `send_message` / `mic`  
 网关 → 客户端：`status` / `server_info` / `channel_tree` / `client_list` / `message` / `error`  
-Binary 帧：`[opcode=1][codec:u8][opus payload]`（语音通路骨架，浏览器编解码仍待完成）
+Binary 帧：`[opcode=1][codec:u8][opus payload]`（codec 4 = Opus Voice）
 
 完整类型见 `shared/types.ts`。
 

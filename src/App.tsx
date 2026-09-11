@@ -8,6 +8,7 @@ import {
 } from '../shared/types'
 import { createGatewayClient, type WsStatus } from './lib/gateway-client'
 import { useMicrophone } from './lib/mic'
+import { decodeVoiceFrame, encodeVoiceFrame } from './lib/voice-pipeline'
 
 interface ChatMsg {
   from: string
@@ -110,8 +111,14 @@ export default function App() {
   const [draft, setDraft] = useState('')
   const [lastError, setLastError] = useState<string | null>(null)
 
-  const mic = useMicrophone()
   const clientRef = useRef<ReturnType<typeof createGatewayClient> | null>(null)
+  const pushIncomingRef = useRef<(opus: Uint8Array) => void>(() => {})
+
+  const mic = useMicrophone((opus) => {
+    clientRef.current?.sendAudio(encodeVoiceFrame(opus))
+  })
+
+  pushIncomingRef.current = mic.pushIncoming
 
   const activeChannelId = useMemo(() => {
     const me = clients.find((c) => c.id === selfId)
@@ -149,10 +156,17 @@ export default function App() {
     }
   }, [])
 
+  const onAudioFrame = useCallback((data: ArrayBuffer) => {
+    const parsed = decodeVoiceFrame(data)
+    if (!parsed || !parsed.opus.length) return
+    pushIncomingRef.current(parsed.opus)
+  }, [])
+
   useEffect(() => {
     const client = createGatewayClient({
       onMessage,
       onSocketStatus: (s) => setWsStatus(s),
+      onAudioFrame,
     })
     clientRef.current = client
     client.start()
@@ -160,11 +174,12 @@ export default function App() {
       client.close()
       clientRef.current = null
     }
-  }, [onMessage])
+  }, [onMessage, onAudioFrame])
 
   useEffect(() => {
     void mic.refreshDevices()
-  }, [mic])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const connected = connState === 'connected'
 
@@ -207,9 +222,6 @@ export default function App() {
       clientRef.current?.send({ type: 'mic', enabled: false })
     } else {
       await mic.requestMic(mic.state.selectedId || undefined)
-      if (mic.state.permission !== 'denied') {
-        // permission state updates async; send after request settles via effect-like check
-      }
       clientRef.current?.send({ type: 'mic', enabled: true })
     }
   }
@@ -330,6 +342,21 @@ export default function App() {
                   {mic.state.micOn ? '关闭麦克风' : '开启麦克风'}
                 </button>
               </div>
+              <label>
+                输出音量 {Math.round(mic.state.outputVolume * 100)}%
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={Math.round(mic.state.outputVolume * 100)}
+                  onChange={(e) => mic.setOutputVolume(Number(e.target.value) / 100)}
+                />
+              </label>
+              {!mic.state.webCodecs && (
+                <div className="error-box">
+                  当前浏览器不支持 WebCodecs Opus，无法收发语音（建议 Chrome/Edge）。
+                </div>
+              )}
               {mic.state.permission === 'denied' && (
                 <div className="error-box">麦克风权限被拒绝，请在浏览器设置中允许。</div>
               )}

@@ -3,7 +3,7 @@ import type {
   ClientInfo,
   GatewayToClient,
 } from '../../../shared/types'
-import type { TsProtocolAdapter } from './adapter'
+import type { TsProtocolAdapter, VoiceFrame } from './adapter'
 
 /** In-memory mock TS3 server for UI/gateway development. */
 export function createMockAdapter(
@@ -13,6 +13,7 @@ export function createMockAdapter(
   let clients: ClientInfo[] = []
   let selfId = 1
   let nickname = 'Guest'
+  let voiceHandlers = new Set<(f: VoiceFrame) => void>()
 
   function rebuildTree(): ChannelNode[] {
     return channels.map((ch) => ({
@@ -140,5 +141,25 @@ export function createMockAdapter(
 
     getChannelTree: () => rebuildTree(),
     getClients: () => clients,
+
+    sendVoice(data, codec = 4) {
+      // Echo back so browser playback path can be exercised in mock mode
+      const frame: VoiceFrame = { clientId: 2, codec, data }
+      for (const h of voiceHandlers) h(frame)
+      const alice = clients.find((c) => c.nickname === 'Alice')
+      if (alice) {
+        alice.isTalking = true
+        emitTree()
+        setTimeout(() => {
+          alice.isTalking = false
+          emitTree()
+        }, 300)
+      }
+    },
+
+    onVoice(handler) {
+      voiceHandlers.add(handler)
+      return () => voiceHandlers.delete(handler)
+    },
   }
 }

@@ -13,7 +13,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p gateway/tsconfig.json --noEmit",
     "test": "npm run typecheck",
     "smoke:ws": "node scripts/smoke-ws.mjs",
-    "smoke:ts3": "node --import tsx scripts/smoke-ts3-connect.ts"
+    "smoke:ts3": "node --import tsx scripts/smoke-ts3-connect.ts",
+    "smoke:voice": "node --import tsx scripts/smoke-voice-frame.mjs"
   },
   "dependencies": {
     "@honeybbq/teamspeak-client": "^0.2.3",
