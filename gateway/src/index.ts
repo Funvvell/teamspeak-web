@@ -124,8 +124,7 @@ server.on('upgrade', (req, socket, head) => {
     const q = url.searchParams.get('token')
     const auth = req.headers.authorization || ''
     if (q !== GATEWAY_TOKEN && auth !== `Bearer ${GATEWAY_TOKEN}`) {
-      // Allow first-message auth: accept upgrade, Session will reject
-      // Prefer URL token for simplicity — reject here if neither present
+      // Reject at upgrade with 401 (URL token or Authorization header)
       socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
       socket.destroy()
       return

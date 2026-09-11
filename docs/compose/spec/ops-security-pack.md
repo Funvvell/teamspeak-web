@@ -1,14 +1,20 @@
 ---
 feature: ops-security-pack
-status: in-progress
+status: delivered
 updated: 2026-09-12
 branch: master
-commits: (pending)
+commits: e15a2e6~1..afe2184 (+ review fixes)
 ---
 
 # 运维安全包
 
 ## Report
+
+**What was built** — 可选 `GATEWAY_TOKEN`（WS upgrade 校验 URL token 或 Bearer）；`/health`、`/config`；前端 token 存储与默认服务器预填。
+
+**Verification** — /health /config JSON PASS；带 token 的 WS 路径由前端自动附带；无 token 时本地开发不受影响。
+
+**Journey log** — 首版注释与实现不一致，已对齐为 upgrade 阶段 401。
 
 ## [S1] Problem
 
@@ -19,11 +25,12 @@ commits: (pending)
 ### 网关 Token
 
 - 环境变量 `GATEWAY_TOKEN`（空 = 不校验，兼容本地开发）
-- 校验方式：
-  - HTTP：`Authorization: Bearer <token>` 或 `?token=`
-  - WebSocket：连接 URL `?token=` 或首条 JSON `{ type: 'auth', token }`
-- 失败：HTTP 401 / WS 先发 `{ type: 'error', code: 'unauthorized' }` 再关闭
-- 前端：`localStorage tsweb:token`；设置里可填；连接时带上
+- 校验方式（在 WebSocket **upgrade 阶段**）：
+  - URL：`/ws?token=<token>`
+  - 或 HTTP Header：`Authorization: Bearer <token>`
+- 失败：HTTP 401 并关闭连接
+- 前端：`localStorage tsweb:token`；设置里可填；连接时带在 query 上
+- 注：不做首条 JSON 鉴权（升级前即拒绝，避免未鉴权占会话）
 
 ### 默认服务器
 

@@ -446,6 +446,14 @@ export function createTs3Adapter(
         text: `*poke* ${p.message}`,
         ts: Date.now(),
       })
+      emit({
+        type: 'event_log',
+        event: 'poke',
+        clientId: p.invokerID,
+        nickname: p.invokerName,
+        detail: p.message || undefined,
+        ts: Date.now(),
+      })
     })
 
     c.on('voiceData', (data: VoiceData) => {

@@ -196,13 +196,16 @@ function ChannelListView({
                 ) : (
                   <span className="channel-icon">{ch.isDefault ? '⌂' : '#'}</span>
                 )}
+                {hasKids && ch.isDefault && (
+                  <span className="channel-icon">⌂</span>
+                )}
                 {ch.name}
               </span>
               <span className="channel-meta">
                 {ch.clients.length}/{ch.maxClients === 0 ? '∞' : ch.maxClients}
               </span>
             </button>
-            {isOpen && ch.clients.length > 0 && (
+            {ch.clients.length > 0 && (
               <div className="clients">
                 {ch.clients.map((c) => (
                   <div
@@ -223,6 +226,11 @@ function ChannelListView({
                     )}
                     <span>{c.nickname}</span>
                     {c.id === selfId && <span className="channel-meta">（我）</span>}
+                    {c.isMuted && !c.isInputMuted && (
+                      <span className="channel-meta" title="已静音">
+                        🔇
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -472,7 +480,7 @@ export default function App() {
               t.id === tabId
                 ? {
                     ...t,
-                    logs: [...t.logs.slice(-200), { ...msg } as LogItem],
+                    logs: [...t.logs.slice(-199), { ...msg } as LogItem],
                   }
                 : t,
             ),

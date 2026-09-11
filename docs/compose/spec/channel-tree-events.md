@@ -1,14 +1,20 @@
 ---
 feature: channel-tree-events
-status: in-progress
+status: delivered
 updated: 2026-09-12
 branch: master
-commits: (pending)
+commits: e15a2e6~1..afe2184 (+ review fixes)
 ---
 
 # 频道树与事件日志
 
 ## Report
+
+**What was built** — 频道按 `channel_order` 排序、可折叠（折叠时仍显示本频道成员，只隐藏子频道）；右栏「聊天/事件」；`event_log` 覆盖 join/leave/move/connect/disconnect/poke；可选国家旗。
+
+**Verification** — typecheck/build PASS；gateway smoke 收到 event_log 并连上 ts.example.com。
+
+**Journey log** — 折叠曾误隐藏本频道客户端，review 后按 TS 行为修正。
 
 ## [S1] Problem
 
