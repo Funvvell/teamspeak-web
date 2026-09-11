@@ -28,13 +28,22 @@ TeamSpeak 3 Server (UDP, 默认 9987)
 | `shared/types.ts` | WebSocket 消息契约 |
 | `docs/compose/spec/` | 设计规格 |
 
-## 快速开始
+## 本地开发
 
 ```bash
 npm install
 npm run build
 npm start
 # 打开 http://127.0.0.1:8080
+```
+
+默认监听 **0.0.0.0:8080**（服务器部署）。本机只绑回环：
+
+```bash
+# Linux/macOS
+HOST=127.0.0.1 npm start
+# PowerShell
+$env:HOST = "127.0.0.1"; npm start
 ```
 
 默认协议为 **真实 TS3**（`PROTOCOL=ts3`）。要用 Mock：
@@ -52,6 +61,92 @@ npm run dev
 # Vite: http://localhost:5173  （已代理 /ws → 127.0.0.1:8080）
 # Gateway: ws://127.0.0.1:8080/ws
 ```
+
+## 服务器部署（任意浏览器访问网址）
+
+### 要求
+
+| 项 | 说明 |
+|----|------|
+| Node.js | 20+（推荐 22） |
+| 防火墙 | 放行网关端口（默认 8080/TCP） |
+| **HTTPS** | **公网必须**。浏览器在非 localhost 下拒绝麦克风权限（`getUserMedia` / WebCodecs） |
+| 网络 | 服务器主机必须能访问目标 TeamSpeak 的 UDP（默认 9987） |
+
+### 方式 A：Docker Compose（推荐）
+
+```bash
+git clone <your-repo-url>
+cd teamspeak-web
+docker compose up -d --build
+# 浏览器访问 http://<服务器IP>:8080
+```
+
+数据（TS 身份）在 volume `tsweb-data`。
+
+### 方式 B：源码 + systemd（Linux）
+
+```bash
+# 1. 部署到 /opt/teamspeak-web
+sudo mkdir -p /opt/teamspeak-web
+sudo rsync -a --exclude node_modules --exclude dist ./ /opt/teamspeak-web/
+cd /opt/teamspeak-web
+sudo npm ci
+sudo npm run build
+
+# 2. 安装服务
+sudo cp deploy/teamspeak-web.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now teamspeak-web
+sudo systemctl status teamspeak-web
+```
+
+### 方式 C：只开防火墙（无 HTTPS，仅内网/试验）
+
+```bash
+npm run build
+HOST=0.0.0.0 PORT=8080 npm start
+# Ubuntu 示例
+sudo ufw allow 8080/tcp
+```
+
+访问 `http://<IP>:8080` 可看界面、连服务器、文字聊天。  
+**麦克风会失败**（非安全上下文）——要语音必须上 HTTPS。
+
+### 反向代理 + HTTPS（生产必做）
+
+1. 域名 A 记录指向服务器  
+2. Nginx 反代本机 `8080`，并正确转发 WebSocket（`/ws` 的 `Upgrade`/`Connection`）  
+3. Let's Encrypt 签发证书  
+
+参考配置：`deploy/nginx.conf.example`  
+
+关键片段：
+
+```nginx
+location /ws {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+```
+
+用户访问 **https://teamspeak.example.com** 即可，任意浏览器都能开麦说话。
+
+### 环境变量
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `HOST` | `0.0.0.0` | 监听地址 |
+| `PORT` | `8080` | HTTP/WS 端口 |
+| `PROTOCOL` | `ts3` | `ts3` 真实协议 / `mock` 模拟 |
+
+### 安全注意
+
+- 当前**无登录体系**，任何能打开网址的人都能用网关连任意 TS 服务器。  
+- 公网请：限制源 IP、加反代 Basic Auth / SSO，或仅内网开放。  
+- 服务器密码只在内存中用于当次连接，不会写日志。
 
 ## 已实现
 

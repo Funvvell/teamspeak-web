@@ -1,0 +1,19 @@
+[Unit]
+Description=TeamSpeak Web Gateway
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/teamspeak-web
+Environment=NODE_ENV=production
+Environment=PORT=8080
+Environment=HOST=0.0.0.0
+Environment=PROTOCOL=ts3
+ExecStart=/usr/bin/node /opt/teamspeak-web/node_modules/tsx/dist/cli.mjs gateway/src/index.ts
+Restart=on-failure
+RestartSec=3
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target

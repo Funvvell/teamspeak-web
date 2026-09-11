@@ -12,7 +12,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '../..')
 const DIST = path.join(ROOT, 'dist')
 const PORT = Number(process.env.PORT || 8080)
-const HOST = process.env.HOST || '127.0.0.1'
+// 0.0.0.0 = 服务器部署（外网可访问）；本机开发可 HOST=127.0.0.1
+const HOST = process.env.HOST || '0.0.0.0'
 const PROTOCOL = (process.env.PROTOCOL || 'ts3').toLowerCase()
 
 const createAdapter: AdapterFactory =

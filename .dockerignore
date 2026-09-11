@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+.env
+*.log
+gw.out
+gw.err
+gateway/data
+docs
+scripts
