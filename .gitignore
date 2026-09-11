@@ -6,3 +6,5 @@ dist/
 gateway/data/
 gw.out
 gw.err
+gateway-run.log
+gateway-run.err
