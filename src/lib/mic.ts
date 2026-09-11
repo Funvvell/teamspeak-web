@@ -59,6 +59,13 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     pipelineRef.current.setOutputVolume(v)
   }, [])
 
+  const setOutputDevice = useCallback(async (deviceId: string) => {
+    if (!pipelineRef.current) {
+      pipelineRef.current = createVoicePipeline()
+    }
+    await pipelineRef.current.setOutputDevice(deviceId)
+  }, [])
+
   async function refreshDevices() {
     if (!navigator.mediaDevices?.enumerateDevices) return
     const list = await navigator.mediaDevices.enumerateDevices()
@@ -209,6 +216,7 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     setState,
     pushIncoming,
     setOutputVolume,
+    setOutputDevice,
     setClientVolume,
     setMuted,
   }

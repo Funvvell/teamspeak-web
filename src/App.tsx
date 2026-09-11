@@ -10,6 +10,14 @@ import {
 import { createGatewayClient, type WsStatus } from './lib/gateway-client'
 import { useMicrophone } from './lib/mic'
 import { decodeVoiceFrame, encodeVoiceFrame } from './lib/voice-pipeline'
+import {
+  applySinkId,
+  getSoundsEnabled,
+  getStoredSinkId,
+  playNotify,
+  setSoundsEnabled,
+  supportsSetSinkId,
+} from './lib/notify'
 
 interface ChatMsg {
   from: string
@@ -39,6 +47,11 @@ interface ConnectionTab {
   chatTarget: 'channel' | 'server' | 'pm'
   pmTarget: number | null
   client: ReturnType<typeof createGatewayClient> | null
+  /** auto-reconnect bookkeeping */
+  wasConnected: boolean
+  reconnectAttempts: number
+  manualDisconnect: boolean
+  prevClientIds: Set<number>
 }
 
 const LS_FAV = 'tsweb:favorites'
@@ -121,6 +134,9 @@ function ChannelListView({
                 >
                   <span className={`dot${c.isTalking ? ' talking' : ''}`} />
                   {c.isCommander && <span title="频道指挥官">★</span>}
+                  {c.isAway && <span title="离开">🌙</span>}
+                  {c.isInputMuted && <span title="输入已闭麦">🎤</span>}
+                  {c.isOutputMuted && <span title="输出已闭麦">🔇</span>}
                   <span>{c.nickname}</span>
                   {c.id === selfId && <span className="channel-meta">（我）</span>}
                   {c.isMuted && <span className="channel-meta">🔇</span>}
@@ -157,6 +173,10 @@ function emptyTab(partial?: Partial<ConnectionTab>): ConnectionTab {
     chatTarget: 'channel',
     pmTarget: null,
     client: null,
+    wasConnected: false,
+    reconnectAttempts: 0,
+    manualDisconnect: false,
+    prevClientIds: new Set(),
     ...partial,
   }
 }
@@ -188,6 +208,10 @@ export default function App() {
     client: ClientInfo
   } | null>(null)
   const [volumes, setVolumes] = useState<Record<string, number>>({})
+  const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([])
+  const [sinkId, setSinkId] = useState(() => getStoredSinkId())
+  const [soundsOn, setSoundsOn] = useState(() => getSoundsEnabled())
+  const [canSink, setCanSink] = useState(() => supportsSetSinkId())
 
   const mic = useMicrophone((opus) => {
     const tab = tabsRef.current.find((t) => t.id === activeIdRef.current)
@@ -200,6 +224,12 @@ export default function App() {
   activeIdRef.current = activeId
   const micRef = useRef(mic)
   micRef.current = mic
+  const reconnectTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  )
+  const connectTabRef = useRef<(id: string, opts?: { auto?: boolean }) => void>(
+    () => {},
+  )
 
   const active = tabs.find((t) => t.id === activeId) || tabs[0]
 
@@ -211,18 +241,69 @@ export default function App() {
     if (active?.host) setVolumes(loadVolumes(active.host))
   }, [active?.host])
 
+  useEffect(() => {
+    void navigator.mediaDevices
+      ?.enumerateDevices?.()
+      .then((list) => {
+        setOutputDevices(list.filter((d) => d.kind === 'audiooutput'))
+        setCanSink(supportsSetSinkId())
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      for (const t of reconnectTimers.current.values()) clearTimeout(t)
+      reconnectTimers.current.clear()
+    }
+  }, [])
+
   const patchTab = useCallback((id: string, patch: Partial<ConnectionTab>) => {
     setTabs((list) => list.map((t) => (t.id === id ? { ...t, ...patch } : t)))
   }, [])
 
+  const scheduleReconnect = useCallback(
+    (tabId: string) => {
+      const tab = tabsRef.current.find((t) => t.id === tabId)
+      if (!tab || tab.manualDisconnect || !tab.wasConnected) return
+      if (tab.reconnectAttempts >= 5) return
+      if (reconnectTimers.current.has(tabId)) return
+      const attempt = tab.reconnectAttempts + 1
+      const delay = Math.min(1000 * 2 ** (attempt - 1), 8000)
+      patchTab(tabId, { reconnectAttempts: attempt })
+      const timer = setTimeout(() => {
+        reconnectTimers.current.delete(tabId)
+        const t = tabsRef.current.find((x) => x.id === tabId)
+        if (!t || t.manualDisconnect) return
+        connectTabRef.current(tabId, { auto: true })
+      }, delay)
+      reconnectTimers.current.set(tabId, timer)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [patchTab],
+  )
+
   const onMessage = useCallback(
     (tabId: string) => (msg: GatewayToClient) => {
+      const isActive = () => tabId === activeIdRef.current
       switch (msg.type) {
         case 'status':
           patchTab(tabId, {
             connState: msg.state,
             lastError: msg.state === 'error' ? msg.message || '连接错误' : null,
           })
+          if (msg.state === 'connected') {
+            patchTab(tabId, {
+              wasConnected: true,
+              reconnectAttempts: 0,
+              manualDisconnect: false,
+            })
+            if (isActive()) playNotify('connect')
+          }
+          if (msg.state === 'disconnected' || msg.state === 'error') {
+            if (isActive()) playNotify('disconnect')
+            scheduleReconnect(tabId)
+          }
           break
         case 'server_info':
           patchTab(tabId, {
@@ -233,10 +314,26 @@ export default function App() {
         case 'channel_tree':
           patchTab(tabId, { channels: msg.channels })
           break
-        case 'client_list':
-          patchTab(tabId, { clients: msg.clients })
+        case 'client_list': {
+          setTabs((list) =>
+            list.map((t) => {
+              if (t.id !== tabId) return t
+              const prev = t.prevClientIds
+              const nextIds = new Set(msg.clients.map((c) => c.id))
+              if (prev.size > 0 && isActive()) {
+                for (const c of msg.clients) {
+                  if (!prev.has(c.id) && c.id !== t.selfId) playNotify('join')
+                }
+                for (const id of prev) {
+                  if (!nextIds.has(id) && id !== t.selfId) playNotify('leave')
+                }
+              }
+              return { ...t, clients: msg.clients, prevClientIds: nextIds }
+            }),
+          )
           break
-        case 'message':
+        }
+        case 'message': {
           setTabs((list) =>
             list.map((t) =>
               t.id === tabId
@@ -247,32 +344,45 @@ export default function App() {
                 : t,
             ),
           )
+          if (isActive()) {
+            if (/\*poke\*/i.test(msg.text)) playNotify('poke')
+            else if (msg.target.startsWith('client:')) playNotify('pm')
+          }
           break
+        }
         case 'error':
           patchTab(tabId, { lastError: `${msg.code}: ${msg.message}` })
           break
       }
     },
-    [patchTab],
+    [patchTab, scheduleReconnect],
   )
 
-  const onAudioFrame = useCallback((data: ArrayBuffer) => {
-    const parsed = decodeVoiceFrame(data)
-    if (!parsed || !parsed.opus.length) return
-    micRef.current.pushIncoming(parsed.opus, parsed.clientId)
-  }, [])
+  const onAudioFrameFor = useCallback(
+    (tabId: string) => (data: ArrayBuffer) => {
+      // Only the active tab plays voice
+      if (tabId !== activeIdRef.current) return
+      const parsed = decodeVoiceFrame(data)
+      if (!parsed || !parsed.opus.length) return
+      micRef.current.pushIncoming(parsed.opus, parsed.clientId)
+    },
+    [],
+  )
 
-  const connectTab = (id: string) => {
+  const connectTab = (id: string, opts?: { auto?: boolean }) => {
     const tab = tabsRef.current.find((t) => t.id === id)
     if (!tab || !tab.host.trim() || !tab.nickname.trim()) {
-      patchTab(id, { lastError: '请填写服务器地址和昵称' })
+      if (!opts?.auto) patchTab(id, { lastError: '请填写服务器地址和昵称' })
       return
     }
     tab.client?.close()
     const client = createGatewayClient({
       onMessage: onMessage(id),
-      onSocketStatus: (s) => patchTab(id, { wsStatus: s }),
-      onAudioFrame,
+      onSocketStatus: (s) => {
+        patchTab(id, { wsStatus: s })
+        if (s === 'closed' || s === 'error') scheduleReconnect(id)
+      },
+      onAudioFrame: onAudioFrameFor(id),
     })
     client.start()
     patchTab(id, {
@@ -301,13 +411,25 @@ export default function App() {
       })
     }, 50)
   }
+  connectTabRef.current = connectTab
 
   const disconnectTab = (id: string) => {
+    const timer = reconnectTimers.current.get(id)
+    if (timer) {
+      clearTimeout(timer)
+      reconnectTimers.current.delete(id)
+    }
+    patchTab(id, { manualDisconnect: true, reconnectAttempts: 0 })
     const tab = tabsRef.current.find((t) => t.id === id)
     tab?.client?.send({ type: 'disconnect' })
   }
 
   const closeTab = (id: string) => {
+    const timer = reconnectTimers.current.get(id)
+    if (timer) {
+      clearTimeout(timer)
+      reconnectTimers.current.delete(id)
+    }
     const tab = tabsRef.current.find((t) => t.id === id)
     tab?.client?.send({ type: 'disconnect' })
     setTimeout(() => tab?.client?.close(), 200)
@@ -401,6 +523,11 @@ export default function App() {
                 }`}
               />
               {t.serverName || t.host || '新连接'}
+              {t.connState === 'disconnected' &&
+                t.wasConnected &&
+                !t.manualDisconnect && (
+                  <span className="badge connecting">重连{t.reconnectAttempts}/5</span>
+                )}
               {tabs.length > 1 && (
                 <span
                   className="tab-close"
@@ -567,6 +694,51 @@ export default function App() {
                   }
                 />
               </label>
+
+              {canSink && (
+                <label>
+                  输出设备
+                  <select
+                    value={sinkId}
+                    onChange={(e) => {
+                      const id = e.target.value
+                      setSinkId(id)
+                      applySinkId(id)
+                      void mic.setOutputDevice(id)
+                    }}
+                  >
+                    <option value="">系统默认</option>
+                    {outputDevices.map((d) => (
+                      <option key={d.deviceId} value={d.deviceId}>
+                        {d.label || d.deviceId.slice(0, 8)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              <label className="row" style={{ alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={soundsOn}
+                  onChange={(e) => {
+                    setSoundsOn(e.target.checked)
+                    setSoundsEnabled(e.target.checked)
+                  }}
+                  style={{ width: 'auto' }}
+                />
+                <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>
+                  通知音效（进出/私聊/Poke）
+                </span>
+              </label>
+
+              {active?.connState === 'disconnected' &&
+                active.wasConnected &&
+                !active.manualDisconnect && (
+                  <div className="ok-box">
+                    正在自动重连 {active.reconnectAttempts}/5…
+                  </div>
+                )}
               {whisperActive && (
                 <button
                   type="button"

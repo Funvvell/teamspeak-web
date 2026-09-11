@@ -66,6 +66,14 @@ export function webCodecsSupported(): boolean {
   )
 }
 
+export function sinkIdSupported(): boolean {
+  return (
+    typeof AudioContext !== 'undefined' &&
+    typeof (AudioContext.prototype as { setSinkId?: unknown }).setSinkId ===
+      'function'
+  )
+}
+
 export interface VoicePipeline {
   startCapture(
     stream: MediaStream,
@@ -77,6 +85,8 @@ export interface VoicePipeline {
   setOutputVolume(v: number): void
   setClientVolume(clientId: number, v: number): void
   getClientVolume(clientId: number): number
+  setOutputDevice(deviceId: string): Promise<void>
+  beep(freq?: number, durationSec?: number, gain?: number): void
   close(): void
 }
 
@@ -96,6 +106,7 @@ export function createVoicePipeline(): VoicePipeline {
   let outputVolume = 1
   const clientVolumes = new Map<number, number>()
   let pendingClientId = 0
+  let sinkId = ''
 
   function ensureCtx(): AudioContext {
     if (!audioCtx || audioCtx.state === 'closed') {
@@ -104,6 +115,11 @@ export function createVoicePipeline(): VoicePipeline {
       masterGain.gain.value = outputVolume
       masterGain.connect(audioCtx.destination)
       nextPlayTime = 0
+      if (sinkId && sinkIdSupported()) {
+        void (audioCtx as AudioContext & { setSinkId(id: string): Promise<void> })
+          .setSinkId(sinkId)
+          .catch(() => {})
+      }
     }
     if (audioCtx.state === 'suspended') void audioCtx.resume()
     return audioCtx
@@ -295,6 +311,36 @@ export function createVoicePipeline(): VoicePipeline {
     return clientVolumes.get(clientId) ?? 1
   }
 
+  async function setOutputDevice(deviceId: string) {
+    sinkId = deviceId || ''
+    const ctx = ensureCtx()
+    if (!sinkIdSupported()) return
+    try {
+      await (ctx as AudioContext & { setSinkId(id: string): Promise<void> }).setSinkId(
+        sinkId,
+      )
+    } catch (e) {
+      console.warn('[voice] setSinkId failed', e)
+    }
+  }
+
+  function beep(freq = 880, durationSec = 0.08, gain = 0.15) {
+    const ctx = ensureCtx()
+    if (!masterGain) return
+    const osc = ctx.createOscillator()
+    const g = ctx.createGain()
+    osc.type = 'sine'
+    osc.frequency.value = freq
+    g.gain.value = gain * outputVolume
+    osc.connect(g)
+    g.connect(masterGain)
+    const t = ctx.currentTime
+    g.gain.setValueAtTime(g.gain.value, t)
+    g.gain.exponentialRampToValueAtTime(0.001, t + durationSec)
+    osc.start(t)
+    osc.stop(t + durationSec + 0.02)
+  }
+
   function close() {
     closed = true
     stopCapture()
@@ -318,6 +364,8 @@ export function createVoicePipeline(): VoicePipeline {
     setOutputVolume,
     setClientVolume,
     getClientVolume,
+    setOutputDevice,
+    beep,
     close,
   }
 }

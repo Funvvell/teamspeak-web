@@ -13,8 +13,10 @@ export interface ClientInfo {
   channelId: number
   isTalking: boolean
   isMuted: boolean
-  /** Channel commander flag when the server exposes it */
   isCommander?: boolean
+  isAway?: boolean
+  isInputMuted?: boolean
+  isOutputMuted?: boolean
 }
 
 export type ConnectionState =

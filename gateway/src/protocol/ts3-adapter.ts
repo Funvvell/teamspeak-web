@@ -281,8 +281,9 @@ export function createTs3Adapter(
       // optional
     }
 
-    // Probe a few clients for channel commander flag (optional, rate-limited)
-    const probeIds = clients.filter((x) => x.id !== selfId).slice(0, 5).map((x) => x.id)
+    // Probe a few clients for channel commander / away / mute flags (optional, rate-limited)
+    const probeIds = clients.filter((x) => x.id !== selfId).slice(0, 8).map((x) => x.id)
+    if (selfId) probeIds.unshift(selfId)
     for (const id of probeIds) {
       await sleep(80)
       try {
@@ -295,6 +296,16 @@ export function createTs3Adapter(
             row.client_is_channel_commander === '1'
           ) {
             cl.isCommander = true
+          }
+          if (row.client_away === '1' || row.client_away_message !== undefined && row.client_away === '1') {
+            cl.isAway = true
+          }
+          if (row.client_input_muted === '1' || row.client_input_hardware === '0') {
+            cl.isInputMuted = true
+            cl.isMuted = true
+          }
+          if (row.client_output_muted === '1' || row.client_output_hardware === '0') {
+            cl.isOutputMuted = true
           }
         }
       } catch {
