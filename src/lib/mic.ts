@@ -37,11 +37,18 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
   frameCbRef.current = onOpusFrame
   const selectedIdRef = useRef('')
 
-  const pushIncoming = useCallback((opus: Uint8Array) => {
+  const pushIncoming = useCallback((opus: Uint8Array, clientId = 0) => {
     if (!pipelineRef.current) {
       pipelineRef.current = createVoicePipeline()
     }
-    pipelineRef.current.pushIncoming(opus)
+    pipelineRef.current.pushIncoming(opus, clientId)
+  }, [])
+
+  const setClientVolume = useCallback((clientId: number, v: number) => {
+    if (!pipelineRef.current) {
+      pipelineRef.current = createVoicePipeline()
+    }
+    pipelineRef.current.setClientVolume(clientId, v)
   }, [])
 
   const setOutputVolume = useCallback((v: number) => {
@@ -202,6 +209,7 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     setState,
     pushIncoming,
     setOutputVolume,
+    setClientVolume,
     setMuted,
   }
 }

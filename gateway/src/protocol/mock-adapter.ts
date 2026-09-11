@@ -14,6 +14,8 @@ export function createMockAdapter(
   let selfId = 1
   let nickname = 'Guest'
   let voiceHandlers = new Set<(f: VoiceFrame) => void>()
+  const whisperClients = new Set<number>()
+  const whisperChannels = new Set<number>()
 
   function rebuildTree(): ChannelNode[] {
     return channels.map((ch) => ({
@@ -110,6 +112,7 @@ export function createMockAdapter(
     },
 
     sendText(target, text) {
+      const whisper = whisperClients.size > 0 || whisperChannels.size > 0
       const label =
         target === 'channel'
           ? 'channel'
@@ -121,8 +124,9 @@ export function createMockAdapter(
         from: nickname,
         fromId: selfId,
         target: label,
-        text,
+        text: whisper ? `[耳语] ${text}` : text,
         ts: Date.now(),
+        whisper,
       })
       if (target === 'channel') {
         const other = clients.find((c) => c.nickname === 'Alice')
@@ -137,6 +141,27 @@ export function createMockAdapter(
           })
         }
       }
+    },
+
+    async poke(targetId, message) {
+      emit({
+        type: 'message',
+        from: 'System',
+        fromId: 0,
+        target: 'server',
+        text: `Poked #${targetId}${message ? ': ' + message : ''}`,
+        ts: Date.now(),
+      })
+    },
+
+    addWhisperTarget(target) {
+      if (target.kind === 'client') whisperClients.add(target.id)
+      else whisperChannels.add(target.id)
+    },
+
+    clearWhisperTargets() {
+      whisperClients.clear()
+      whisperChannels.clear()
     },
 
     getChannelTree: () => rebuildTree(),

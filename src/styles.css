@@ -195,6 +195,102 @@ input[type="range"] {
   flex: 1;
 }
 
+.tabbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+  overflow-x: auto;
+  max-width: 50vw;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.tab.active {
+  border-color: var(--accent);
+  background: rgba(59, 158, 255, 0.15);
+  color: #fff;
+}
+
+.tab.add {
+  padding: 6px 12px;
+  font-weight: 700;
+}
+
+.tab-close {
+  opacity: 0.6;
+  margin-left: 2px;
+  padding: 0 2px;
+}
+
+.tab-close:hover {
+  opacity: 1;
+  color: #ffb4ba;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 180px;
+  background: #1a2330;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+  display: grid;
+  gap: 2px;
+}
+
+.context-menu button {
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.context-menu button:hover {
+  background: rgba(59, 158, 255, 0.12);
+}
+
+.context-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 6px 10px 4px;
+}
+
+.context-vol {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border-soft);
+  margin-top: 4px;
+}
+
+.context-vol span {
+  font-size: 11px;
+  color: var(--dim);
+  margin-right: 4px;
+}
+
+.context-vol button {
+  padding: 4px 6px;
+  font-size: 11px;
+  width: auto;
+}
+
 .main {
   display: grid;
   grid-template-columns: 300px 1fr 340px;

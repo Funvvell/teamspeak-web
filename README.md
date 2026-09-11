@@ -151,30 +151,29 @@ location /ws {
 ## 已实现
 
 - 连接任意可达 TS3 服务器（UDP 握手、ECDH/RSA/EAX）
-- 频道树、成员列表、进出/换频道事件
-- 频道 / 服务器文字聊天、Poke 提示
-- 麦克风设备选择与电平（本地）
-- **语音收发**：WebCodecs Opus 编码上行 / 解码播放（Chrome/Edge；需 HTTPS 或 localhost）
-- 输出音量滑条
-- 身份持久化：`gateway/data/identity.txt`
-- Mock 模式便于无服务器调试 UI（含语音回声）
+- **多开**：顶栏多服务器标签，`+` 新建；仅活动标签上行麦克风
+- 频道树、成员列表、进出/换频道事件、指挥官 ★（服务器提供字段时）
+- 频道 / 服务器 / **私聊**；**Poke**；**耳语目标**（客户端/频道，文本耳语）
+- 成员**右键菜单**：私聊 / Poke / 耳语 / 复制昵称 / 快捷音量
+- **按成员音量**（0–150%，按服务器记住）
+- 麦克风自动识别 + 电平 + WebCodecs Opus 收发
+- 身份每会话独立（多开不互踢）
+- Mock 模式、Docker/反代部署说明
 
 ## 验证
 
 ```bash
 npm run typecheck
 npm run smoke:voice
-npm run smoke:ts3 -- <ts-host> [port]   # 真实协议
-# 另开终端：
-PROTOCOL=mock npm start
-npm run smoke:ws                        # WS 控制面
+npm run smoke:ts3 -- <ts-host> [port]
+npm run smoke:ws
 ```
 
 ## WebSocket 契约（摘要）
 
-客户端 → 网关：`connect` / `disconnect` / `join_channel` / `send_message` / `mic`  
+客户端 → 网关：`connect` / `disconnect` / `join_channel` / `send_message` / `mic` / `whisper_add` / `whisper_clear` / `poke`  
 网关 → 客户端：`status` / `server_info` / `channel_tree` / `client_list` / `message` / `error`  
-Binary 帧：`[opcode=1][codec:u8][opus payload]`（codec 4 = Opus Voice）
+Binary 帧：`[1][codec][clientId u16 BE][opus payload]`
 
 完整类型见 `shared/types.ts`。
 

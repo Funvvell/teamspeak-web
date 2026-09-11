@@ -68,7 +68,11 @@ export class Session {
         if (this.adapter.onVoice) {
           this.adapter.onVoice((frame) => {
             if (this.ws.readyState !== this.ws.OPEN) return
-            const header = Buffer.from([OPCODE_AUDIO, frame.codec & 0xff])
+            // [1][codec][clientId u16 BE][opus]
+            const header = Buffer.alloc(4)
+            header[0] = OPCODE_AUDIO
+            header[1] = frame.codec & 0xff
+            header.writeUInt16BE(frame.clientId & 0xffff, 2)
             this.ws.send(Buffer.concat([header, Buffer.from(frame.data)]))
           })
         }
@@ -103,6 +107,21 @@ export class Session {
       case 'send_message': {
         if (!this.adapter) throw new Error('Not connected')
         await this.adapter.sendText(msg.target, msg.text)
+        return
+      }
+      case 'whisper_add': {
+        if (!this.adapter) throw new Error('Not connected')
+        this.adapter.addWhisperTarget?.(msg.target)
+        return
+      }
+      case 'whisper_clear': {
+        if (!this.adapter) throw new Error('Not connected')
+        this.adapter.clearWhisperTargets?.()
+        return
+      }
+      case 'poke': {
+        if (!this.adapter) throw new Error('Not connected')
+        await this.adapter.poke?.(msg.targetId, msg.message)
         return
       }
       case 'mic': {

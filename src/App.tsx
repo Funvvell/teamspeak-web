@@ -1,17 +1,11 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   DEFAULT_VOICE_PORT,
   type ChannelNode,
   type ClientInfo,
   type ConnectionState,
   type GatewayToClient,
+  type WhisperTarget,
 } from '../shared/types'
 import { createGatewayClient, type WsStatus } from './lib/gateway-client'
 import { useMicrophone } from './lib/mic'
@@ -23,9 +17,32 @@ interface ChatMsg {
   target: string
   text: string
   ts: number
+  whisper?: boolean
 }
 
-const LS_KEY = 'tsweb:lastConnect'
+interface ConnectionTab {
+  id: string
+  host: string
+  port: string
+  nickname: string
+  password: string
+  connState: ConnectionState
+  wsStatus: WsStatus
+  serverName: string | null
+  selfId: number | null
+  channels: ChannelNode[]
+  clients: ClientInfo[]
+  messages: ChatMsg[]
+  whisperClients: number[]
+  whisperChannels: number[]
+  lastError: string | null
+  chatTarget: 'channel' | 'server' | 'pm'
+  pmTarget: number | null
+  client: ReturnType<typeof createGatewayClient> | null
+}
+
+const LS_FAV = 'tsweb:favorites'
+const LS_VOL = 'tsweb:volumes'
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString(undefined, {
@@ -34,11 +51,23 @@ function formatTime(ts: number) {
   })
 }
 
-function statusBadge(state: ConnectionState) {
-  if (state === 'connected') return 'badge ok'
-  if (state === 'connecting') return 'badge connecting'
-  if (state === 'error') return 'badge err'
-  return 'badge'
+function loadVolumes(host: string): Record<string, number> {
+  try {
+    const all = JSON.parse(localStorage.getItem(LS_VOL) || '{}')
+    return all[host] || {}
+  } catch {
+    return {}
+  }
+}
+
+function saveVolumes(host: string, v: Record<string, number>) {
+  try {
+    const all = JSON.parse(localStorage.getItem(LS_VOL) || '{}')
+    all[host] = v
+    localStorage.setItem(LS_VOL, JSON.stringify(all))
+  } catch {
+    /* ignore */
+  }
 }
 
 function ChannelListView({
@@ -46,11 +75,13 @@ function ChannelListView({
   selfId,
   activeChannelId,
   onJoin,
+  onClientMenu,
 }: {
   channels: ChannelNode[]
   selfId: number | null
   activeChannelId: number | null
   onJoin: (id: number) => void
+  onClientMenu: (client: ClientInfo, e: React.MouseEvent) => void
 }) {
   if (!channels.length) {
     return <div className="empty">连接服务器后显示频道树</div>
@@ -64,18 +95,11 @@ function ChannelListView({
   }
 
   function render(parentId: number | null, depth = 0): ReactNode {
-    const list = (byParent.get(parentId) ?? [])
-      .slice()
-      .sort((a, b) => a.id - b.id)
+    const list = (byParent.get(parentId) ?? []).slice().sort((a, b) => a.id - b.id)
     return list.map((ch) => (
       <li key={ch.id} style={{ marginLeft: depth ? depth * 10 : 0 }}>
         <div className={`channel${activeChannelId === ch.id ? ' active' : ''}`}>
-          <button
-            type="button"
-            className="channel-head"
-            onClick={() => onJoin(ch.id)}
-            title="点击切换到此频道"
-          >
+          <button type="button" className="channel-head" onClick={() => onJoin(ch.id)}>
             <span className="channel-name">
               <span className="channel-icon">{ch.isDefault ? '⌂' : '#'}</span>
               {ch.name}
@@ -90,12 +114,15 @@ function ChannelListView({
                 <div
                   key={c.id}
                   className={`client${c.id === selfId ? ' me' : ''}`}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    onClientMenu(c, e)
+                  }}
                 >
                   <span className={`dot${c.isTalking ? ' talking' : ''}`} />
+                  {c.isCommander && <span title="频道指挥官">★</span>}
                   <span>{c.nickname}</span>
-                  {c.id === selfId && (
-                    <span className="channel-meta">（我）</span>
-                  )}
+                  {c.id === selfId && <span className="channel-meta">（我）</span>}
                   {c.isMuted && <span className="channel-meta">🔇</span>}
                 </div>
               ))}
@@ -110,187 +137,247 @@ function ChannelListView({
   return <ul className="tree">{render(null)}</ul>
 }
 
+function emptyTab(partial?: Partial<ConnectionTab>): ConnectionTab {
+  return {
+    id: Math.random().toString(36).slice(2, 9),
+    host: '',
+    port: String(DEFAULT_VOICE_PORT),
+    nickname: '',
+    password: '',
+    connState: 'idle',
+    wsStatus: 'idle',
+    serverName: null,
+    selfId: null,
+    channels: [],
+    clients: [],
+    messages: [],
+    whisperClients: [],
+    whisperChannels: [],
+    lastError: null,
+    chatTarget: 'channel',
+    pmTarget: null,
+    client: null,
+    ...partial,
+  }
+}
+
 export default function App() {
-  const saved = useMemo(() => {
+  const [tabs, setTabs] = useState<ConnectionTab[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem(LS_KEY) || '{}') as {
-        host?: string
-        port?: string
-        nickname?: string
+      const fav = JSON.parse(localStorage.getItem(LS_FAV) || 'null')
+      if (fav?.host) {
+        return [
+          emptyTab({
+            host: fav.host,
+            port: String(fav.port || DEFAULT_VOICE_PORT),
+            nickname: fav.nickname || '',
+          }),
+        ]
       }
     } catch {
-      return {}
+      /* ignore */
     }
-  }, [])
-
-  const [host, setHost] = useState(saved.host || '')
-  const [port, setPort] = useState(saved.port || String(DEFAULT_VOICE_PORT))
-  const [nickname, setNickname] = useState(saved.nickname || '')
-  const [password, setPassword] = useState('')
-
-  const [wsStatus, setWsStatus] = useState<WsStatus>('idle')
-  const [connState, setConnState] = useState<ConnectionState>('idle')
-  const [connMessage, setConnMessage] = useState<string | null>(null)
-  const [serverName, setServerName] = useState<string | null>(null)
-  const [welcome, setWelcome] = useState<string | null>(null)
-  const [selfId, setSelfId] = useState<number | null>(null)
-  const [channels, setChannels] = useState<ChannelNode[]>([])
-  const [clients, setClients] = useState<ClientInfo[]>([])
-  const [messages, setMessages] = useState<ChatMsg[]>([])
-  const [chatTarget, setChatTarget] = useState<'channel' | 'server'>('channel')
+    return [emptyTab()]
+  })
+  const [activeId, setActiveId] = useState(() => '')
   const [draft, setDraft] = useState('')
-  const [lastError, setLastError] = useState<string | null>(null)
   const [muted, setMuted] = useState(false)
-
-  const clientRef = useRef<ReturnType<typeof createGatewayClient> | null>(null)
-  const pushIncomingRef = useRef<(opus: Uint8Array) => void>(() => {})
+  const [menu, setMenu] = useState<{
+    x: number
+    y: number
+    client: ClientInfo
+  } | null>(null)
+  const [volumes, setVolumes] = useState<Record<string, number>>({})
 
   const mic = useMicrophone((opus) => {
-    clientRef.current?.sendAudio(encodeVoiceFrame(opus))
+    const tab = tabsRef.current.find((t) => t.id === activeIdRef.current)
+    tab?.client?.sendAudio(encodeVoiceFrame(opus))
   })
-  pushIncomingRef.current = mic.pushIncoming
 
-  const activeChannelId = useMemo(() => {
-    const me = clients.find((c) => c.id === selfId)
-    return me?.channelId ?? null
-  }, [clients, selfId])
+  const tabsRef = useRef(tabs)
+  tabsRef.current = tabs
+  const activeIdRef = useRef(activeId)
+  activeIdRef.current = activeId
+  const micRef = useRef(mic)
+  micRef.current = mic
 
-  const onMessage = useCallback((msg: GatewayToClient) => {
-    switch (msg.type) {
-      case 'status':
-        setConnState(msg.state)
-        setConnMessage(msg.message ?? null)
-        if (msg.state === 'connected' || msg.state === 'connecting') {
-          setLastError(null)
-        }
-        if (msg.state === 'error' && msg.message) {
-          setLastError(msg.message)
-        }
-        break
-      case 'server_info':
-        setServerName(msg.name)
-        setSelfId(msg.selfId)
-        setWelcome(msg.welcome)
-        break
-      case 'channel_tree':
-        setChannels(msg.channels)
-        break
-      case 'client_list':
-        setClients(msg.clients)
-        break
-      case 'message':
-        setMessages((m) => [...m.slice(-200), msg])
-        break
-      case 'error':
-        setLastError(`${msg.code}: ${msg.message}`)
-        break
-    }
+  const active = tabs.find((t) => t.id === activeId) || tabs[0]
+
+  useEffect(() => {
+    if (!activeId && tabs[0]) setActiveId(tabs[0].id)
+  }, [activeId, tabs])
+
+  useEffect(() => {
+    if (active?.host) setVolumes(loadVolumes(active.host))
+  }, [active?.host])
+
+  const patchTab = useCallback((id: string, patch: Partial<ConnectionTab>) => {
+    setTabs((list) => list.map((t) => (t.id === id ? { ...t, ...patch } : t)))
   }, [])
+
+  const onMessage = useCallback(
+    (tabId: string) => (msg: GatewayToClient) => {
+      switch (msg.type) {
+        case 'status':
+          patchTab(tabId, {
+            connState: msg.state,
+            lastError: msg.state === 'error' ? msg.message || '连接错误' : null,
+          })
+          break
+        case 'server_info':
+          patchTab(tabId, {
+            serverName: msg.name,
+            selfId: msg.selfId,
+          })
+          break
+        case 'channel_tree':
+          patchTab(tabId, { channels: msg.channels })
+          break
+        case 'client_list':
+          patchTab(tabId, { clients: msg.clients })
+          break
+        case 'message':
+          setTabs((list) =>
+            list.map((t) =>
+              t.id === tabId
+                ? {
+                    ...t,
+                    messages: [...t.messages.slice(-200), { ...msg }],
+                  }
+                : t,
+            ),
+          )
+          break
+        case 'error':
+          patchTab(tabId, { lastError: `${msg.code}: ${msg.message}` })
+          break
+      }
+    },
+    [patchTab],
+  )
 
   const onAudioFrame = useCallback((data: ArrayBuffer) => {
     const parsed = decodeVoiceFrame(data)
     if (!parsed || !parsed.opus.length) return
-    pushIncomingRef.current(parsed.opus)
+    micRef.current.pushIncoming(parsed.opus, parsed.clientId)
   }, [])
 
-  useEffect(() => {
-    const client = createGatewayClient({
-      onMessage,
-      onSocketStatus: (s) => setWsStatus(s),
-      onAudioFrame,
-    })
-    clientRef.current = client
-    client.start()
-    return () => {
-      client.close()
-      clientRef.current = null
-    }
-  }, [onMessage, onAudioFrame])
-
-  const connected = connState === 'connected'
-
-  function handleConnect() {
-    if (!host.trim() || !nickname.trim()) {
-      setLastError('请填写服务器地址和昵称')
+  const connectTab = (id: string) => {
+    const tab = tabsRef.current.find((t) => t.id === id)
+    if (!tab || !tab.host.trim() || !tab.nickname.trim()) {
+      patchTab(id, { lastError: '请填写服务器地址和昵称' })
       return
     }
-    setLastError(null)
-    setMessages([])
+    tab.client?.close()
+    const client = createGatewayClient({
+      onMessage: onMessage(id),
+      onSocketStatus: (s) => patchTab(id, { wsStatus: s }),
+      onAudioFrame,
+    })
+    client.start()
+    patchTab(id, {
+      client,
+      lastError: null,
+      messages: [],
+      whisperClients: [],
+      whisperChannels: [],
+    })
     localStorage.setItem(
-      LS_KEY,
+      LS_FAV,
       JSON.stringify({
-        host: host.trim(),
-        port: String(Number(port) || DEFAULT_VOICE_PORT),
-        nickname: nickname.trim(),
+        host: tab.host.trim(),
+        port: tab.port,
+        nickname: tab.nickname.trim(),
       }),
     )
-    clientRef.current?.send({
-      type: 'connect',
-      host: host.trim(),
-      port: Number(port) || DEFAULT_VOICE_PORT,
-      nickname: nickname.trim(),
-      password: password || undefined,
+    // WS open is async — send after short delay or queue (client queues)
+    setTimeout(() => {
+      client.send({
+        type: 'connect',
+        host: tab.host.trim(),
+        port: Number(tab.port) || DEFAULT_VOICE_PORT,
+        nickname: tab.nickname.trim(),
+        password: tab.password || undefined,
+      })
+    }, 50)
+  }
+
+  const disconnectTab = (id: string) => {
+    const tab = tabsRef.current.find((t) => t.id === id)
+    tab?.client?.send({ type: 'disconnect' })
+  }
+
+  const closeTab = (id: string) => {
+    const tab = tabsRef.current.find((t) => t.id === id)
+    tab?.client?.send({ type: 'disconnect' })
+    setTimeout(() => tab?.client?.close(), 200)
+    setTabs((list) => {
+      const next = list.filter((t) => t.id !== id)
+      if (next.length === 0) return [emptyTab()]
+      if (activeIdRef.current === id) setActiveId(next[0].id)
+      return next
     })
   }
 
-  function handleDisconnect() {
-    clientRef.current?.send({ type: 'disconnect' })
+  const addTab = () => {
+    const t = emptyTab()
+    setTabs((list) => [...list, t])
+    setActiveId(t.id)
   }
 
-  function handleJoin(channelId: number) {
-    if (!connected) return
-    clientRef.current?.send({ type: 'join_channel', channelId })
-  }
+  const activeChannelId = useMemo(() => {
+    if (!active) return null
+    const me = active.clients.find((c) => c.id === active.selfId)
+    return me?.channelId ?? null
+  }, [active])
+
+  const whisperActive =
+    !!active &&
+    (active.whisperClients.length > 0 || active.whisperChannels.length > 0)
 
   function handleSend() {
-    const text = draft.trim()
-    if (!text || !connected) return
-    clientRef.current?.send({
-      type: 'send_message',
-      target: chatTarget,
-      text,
-    })
+    if (!active || !draft.trim()) return
+    if (active.chatTarget === 'pm' && active.pmTarget != null) {
+      active.client?.send({
+        type: 'send_message',
+        target: { client: active.pmTarget },
+        text: draft.trim(),
+      })
+    } else {
+      active.client?.send({
+        type: 'send_message',
+        target: active.chatTarget === 'pm' ? 'channel' : active.chatTarget,
+        text: draft.trim(),
+      })
+    }
     setDraft('')
   }
 
-  function toggleMute() {
-    const next = !muted
-    setMuted(next)
-    mic.setMuted(next)
+  function handleJoin(channelId: number) {
+    active?.client?.send({ type: 'join_channel', channelId })
   }
 
-  function toggleMicPower() {
-    if (mic.state.micOn) {
-      mic.stopMic()
-      clientRef.current?.send({ type: 'mic', enabled: false })
-    } else {
-      void mic.requestMic(mic.state.selectedId || undefined).then(() => {
-        clientRef.current?.send({ type: 'mic', enabled: true })
-      })
-    }
+  function openMenu(client: ClientInfo, e: React.MouseEvent) {
+    const x = Math.min(e.clientX, window.innerWidth - 200)
+    const y = Math.min(e.clientY, window.innerHeight - 220)
+    setMenu({ x, y, client })
   }
 
-  async function switchDevice(id: string) {
-    mic.setState((s) => ({ ...s, selectedId: id }))
-    if (mic.state.micOn) {
-      await mic.requestMic(id)
-    }
+  useEffect(() => {
+    const close = () => setMenu(null)
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [])
+
+  function setClientVol(nick: string, id: number, v: number) {
+    if (!active) return
+    mic.setClientVolume(id, v)
+    const next = { ...volumes, [`${id}:${nick}`]: v }
+    setVolumes(next)
+    saveVolumes(active.host, next)
   }
 
-  const stateLabel: Record<ConnectionState, string> = {
-    idle: '未连接',
-    connecting: '连接中',
-    connected: '已连接',
-    disconnected: '已断开',
-    error: '错误',
-  }
-
-  const wsLabel =
-    wsStatus === 'open'
-      ? '网关在线'
-      : wsStatus === 'connecting'
-        ? '网关连接中'
-        : '网关离线'
+  const connected = active?.connState === 'connected'
 
   return (
     <div className="app">
@@ -299,201 +386,267 @@ export default function App() {
           <div className="brand-mark">TS</div>
           <span>TeamSpeak Web</span>
         </div>
-        <span className={statusBadge(connState)}>
-          {stateLabel[connState]}
-          {serverName ? ` · ${serverName}` : ''}
-        </span>
-        <span className={`badge${wsStatus === 'open' ? ' ok' : ''}`}>{wsLabel}</span>
+        <div className="tabbar">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`tab${t.id === active?.id ? ' active' : ''}`}
+              onClick={() => setActiveId(t.id)}
+              title={`${t.host}:${t.port}`}
+            >
+              <span
+                className={`dot${
+                  t.connState === 'connected' ? ' talking' : ''
+                }`}
+              />
+              {t.serverName || t.host || '新连接'}
+              {tabs.length > 1 && (
+                <span
+                  className="tab-close"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    closeTab(t.id)
+                  }}
+                >
+                  ×
+                </span>
+              )}
+            </button>
+          ))}
+          <button type="button" className="tab add" onClick={addTab} title="新建连接">
+            +
+          </button>
+        </div>
         <span className="spacer" />
-        <span className="hint hide-sm">
-          {mic.state.micOn
-            ? muted
-              ? '麦克风已静音'
-              : '麦克风就绪 · 自动识别'
-            : mic.state.permission === 'denied'
-              ? '等待麦克风权限'
-              : '正在识别麦克风…'}
-        </span>
+        {whisperActive && (
+          <span className="badge connecting">
+            耳语中 ({active.whisperClients.length + active.whisperChannels.length})
+          </span>
+        )}
+        <span className="badge">{mic.state.micOn ? (muted ? '麦静音' : '麦开') : '麦关'}</span>
       </header>
 
       <div className="main">
         <aside className="panel">
-          <h2>连接服务器</h2>
+          <h2>连接</h2>
           <div className="body">
             <div className="form-grid">
               <label>
                 服务器地址
                 <input
-                  value={host}
-                  onChange={(e) => setHost(e.target.value)}
+                  value={active?.host || ''}
+                  onChange={(e) =>
+                    active && patchTab(active.id, { host: e.target.value })
+                  }
                   placeholder="ts.example.com"
-                  disabled={connected || connState === 'connecting'}
+                  disabled={connected || active?.connState === 'connecting'}
                 />
               </label>
               <label>
                 端口
                 <input
-                  value={port}
-                  onChange={(e) => setPort(e.target.value)}
-                  inputMode="numeric"
-                  disabled={connected || connState === 'connecting'}
+                  value={active?.port || ''}
+                  onChange={(e) =>
+                    active && patchTab(active.id, { port: e.target.value })
+                  }
+                  disabled={connected || active?.connState === 'connecting'}
                 />
               </label>
               <label>
                 昵称
                 <input
-                  value={nickname}
-                  onChange={(e) => setNickname(e.target.value)}
-                  placeholder="你的昵称"
-                  disabled={connected || connState === 'connecting'}
+                  value={active?.nickname || ''}
+                  onChange={(e) =>
+                    active && patchTab(active.id, { nickname: e.target.value })
+                  }
+                  disabled={connected || active?.connState === 'connecting'}
                 />
               </label>
               <label>
-                服务器密码（可选）
+                密码（可选）
                 <input
                   type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={connected || connState === 'connecting'}
+                  value={active?.password || ''}
+                  onChange={(e) =>
+                    active && patchTab(active.id, { password: e.target.value })
+                  }
+                  disabled={connected || active?.connState === 'connecting'}
                 />
               </label>
               <div className="row">
-                {connected || connState === 'connecting' ? (
-                  <button type="button" className="danger" onClick={handleDisconnect}>
-                    断开连接
+                {connected || active?.connState === 'connecting' ? (
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => active && disconnectTab(active.id)}
+                  >
+                    断开
                   </button>
                 ) : (
-                  <button type="button" className="primary" onClick={handleConnect}>
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => active && connectTab(active.id)}
+                  >
                     连接
                   </button>
                 )}
               </div>
-              {connState === 'connecting' && (
-                <div className="ok-box">正在连接 {host}:{port} … 受限服务器约需 5–15 秒，请稍候。</div>
+              {active?.connState === 'connecting' && (
+                <div className="ok-box">连接中，请稍候…</div>
               )}
-              {lastError && <div className="error-box">{lastError}</div>}
-              {connected && welcome && !lastError && (
-                <div className="ok-box">{welcome}</div>
-              )}
-              {!connected && connMessage && !lastError && (
-                <p className="hint">{connMessage}</p>
+              {active?.lastError && (
+                <div className="error-box">{active.lastError}</div>
               )}
             </div>
           </div>
 
           <div className="section-gap" />
-          <h2>音频设备（自动识别）</h2>
+          <h2>音频</h2>
           <div className="body">
             <div className="form-grid">
               <label>
                 麦克风
                 <select
                   value={mic.state.selectedId}
-                  onChange={(e) => void switchDevice(e.target.value)}
+                  onChange={async (e) => {
+                    const id = e.target.value
+                    mic.setState((s) => ({ ...s, selectedId: id }))
+                    if (mic.state.micOn) await mic.requestMic(id)
+                  }}
                 >
                   {mic.state.devices.length === 0 && (
-                    <option value="">
-                      {mic.state.ready ? '未检测到设备' : '识别中…'}
-                    </option>
+                    <option value="">识别中…</option>
                   )}
                   {mic.state.devices.map((d) => (
                     <option key={d.deviceId} value={d.deviceId}>
-                      {d.label || `麦克风 ${d.deviceId.slice(0, 6)}`}
+                      {d.label || d.deviceId.slice(0, 6)}
                     </option>
                   ))}
                 </select>
               </label>
-
-              <div className="meter-wrap">
-                <div className="meter-label">
-                  <span>输入电平</span>
-                  <span>{mic.state.micOn ? (muted ? '静音' : '采集中') : '未采集'}</span>
-                </div>
-                <div className="meter">
-                  <span
-                    style={{
-                      width: `${Math.round((muted ? 0 : mic.state.level) * 100)}%`,
-                    }}
-                  />
-                </div>
+              <div className="meter">
+                <span
+                  style={{
+                    width: `${Math.round((muted ? 0 : mic.state.level) * 100)}%`,
+                  }}
+                />
               </div>
-
               <div className="row">
-                <button type="button" onClick={toggleMute} disabled={!mic.state.micOn}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const n = !muted
+                    setMuted(n)
+                    mic.setMuted(n)
+                  }}
+                >
                   {muted ? '取消静音' : '静音'}
                 </button>
-                <button type="button" className="ghost" onClick={toggleMicPower}>
-                  {mic.state.micOn ? '关闭麦克风' : '重新开启麦克风'}
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    if (mic.state.micOn) mic.stopMic()
+                    else void mic.requestMic(mic.state.selectedId || undefined)
+                  }}
+                >
+                  {mic.state.micOn ? '关麦' : '开麦'}
                 </button>
               </div>
-
               <label>
-                输出音量 {Math.round(mic.state.outputVolume * 100)}%
+                总音量 {Math.round(mic.state.outputVolume * 100)}%
                 <input
                   type="range"
                   min={0}
-                  max={100}
+                  max={200}
                   value={Math.round(mic.state.outputVolume * 100)}
-                  onChange={(e) => mic.setOutputVolume(Number(e.target.value) / 100)}
+                  onChange={(e) =>
+                    mic.setOutputVolume(Number(e.target.value) / 100)
+                  }
                 />
               </label>
-
-              {mic.state.permission === 'denied' && (
-                <div className="error-box">
-                  未获得麦克风权限。请在浏览器地址栏点击权限图标 → 允许麦克风，然后刷新页面。
-                </div>
-              )}
-              {mic.state.error && mic.state.permission !== 'denied' && (
-                <div className="error-box">{mic.state.error}</div>
-              )}
-              {!mic.state.webCodecs && (
-                <div className="error-box">
-                  当前浏览器不支持 WebCodecs Opus，请使用 Chrome / Edge。
-                </div>
-              )}
-              {mic.state.micOn && mic.state.permission === 'granted' && (
-                <p className="hint">打开页面时已自动识别并启用麦克风，无需再手动点开启。</p>
+              {whisperActive && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    active?.client?.send({ type: 'whisper_clear' })
+                    if (active)
+                      patchTab(active.id, {
+                        whisperClients: [],
+                        whisperChannels: [],
+                      })
+                  }}
+                >
+                  清空耳语目标
+                </button>
               )}
             </div>
           </div>
         </aside>
 
         <section className="panel">
-          <h2>频道</h2>
+          <h2>频道（右键成员：私聊/Poke/耳语/音量）</h2>
           <div className="body">
             <ChannelListView
-              channels={channels}
-              selfId={selfId}
+              channels={active?.channels || []}
+              selfId={active?.selfId ?? null}
               activeChannelId={activeChannelId}
               onJoin={handleJoin}
+              onClientMenu={openMenu}
             />
           </div>
         </section>
 
         <section className="panel chat-panel">
-          <h2>文字聊天</h2>
+          <h2>聊天</h2>
           <div className="chat-log">
-            {messages.length === 0 && <div className="empty">连接后显示消息</div>}
-            {messages.map((m, i) => (
+            {!active?.messages.length && <div className="empty">连接后显示消息</div>}
+            {active?.messages.map((m, i) => (
               <div key={`${m.ts}-${i}`} className="msg">
                 <span className="from">{m.from}</span>
+                {m.whisper && <span className="badge connecting">耳语</span>}{' '}
                 <span>{m.text}</span>
                 <span className="time">{formatTime(m.ts)}</span>
-                {m.target !== 'channel' && m.target !== 'server' && (
-                  <span className="time"> · {m.target}</span>
-                )}
               </div>
             ))}
           </div>
           <div className="chat-input">
             <select
-              value={chatTarget}
-              onChange={(e) => setChatTarget(e.target.value as 'channel' | 'server')}
+              value={active?.chatTarget || 'channel'}
+              onChange={(e) => {
+                if (!active) return
+                const v = e.target.value as 'channel' | 'server' | 'pm'
+                patchTab(active.id, { chatTarget: v })
+              }}
               disabled={!connected}
             >
               <option value="channel">当前频道</option>
               <option value="server">服务器消息</option>
+              <option value="pm">私聊</option>
             </select>
+            {active?.chatTarget === 'pm' && (
+              <select
+                value={active.pmTarget ?? ''}
+                onChange={(e) => {
+                  if (!active) return
+                  patchTab(active.id, {
+                    pmTarget: e.target.value ? Number(e.target.value) : null,
+                  })
+                }}
+                disabled={!connected}
+              >
+                <option value="">选择对象</option>
+                {active.clients
+                  .filter((c) => c.id !== active.selfId)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nickname}
+                    </option>
+                  ))}
+              </select>
+            )}
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -503,7 +656,7 @@ export default function App() {
                   handleSend()
                 }
               }}
-              placeholder={connected ? '输入消息，Enter 发送' : '请先连接服务器'}
+              placeholder={connected ? '输入消息，Enter 发送' : '请先连接'}
               disabled={!connected}
             />
             <button
@@ -517,6 +670,100 @@ export default function App() {
           </div>
         </section>
       </div>
+
+      {menu && active && (
+        <div
+          className="context-menu"
+          style={{ left: menu.x, top: menu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="context-title">{menu.client.nickname}</div>
+          <button
+            type="button"
+            onClick={() => {
+              patchTab(active.id, {
+                chatTarget: 'pm',
+                pmTarget: menu.client.id,
+              })
+              setMenu(null)
+            }}
+          >
+            私聊
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              active.client?.send({
+                type: 'poke',
+                targetId: menu.client.id,
+                message: '来自网页客户端',
+              })
+              setMenu(null)
+            }}
+          >
+            Poke
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              active.client?.send({
+                type: 'whisper_add',
+                target: { kind: 'client', id: menu.client.id },
+              })
+              patchTab(active.id, {
+                whisperClients: [
+                  ...new Set([...active.whisperClients, menu.client.id]),
+                ],
+              })
+              setMenu(null)
+            }}
+          >
+            加入耳语目标
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const cid = menu.client.channelId
+              active.client?.send({
+                type: 'whisper_add',
+                target: { kind: 'channel', id: cid },
+              })
+              patchTab(active.id, {
+                whisperChannels: [
+                  ...new Set([...active.whisperChannels, cid]),
+                ],
+              })
+              setMenu(null)
+            }}
+          >
+            耳语其所在频道
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard.writeText(menu.client.nickname)
+              setMenu(null)
+            }}
+          >
+            复制昵称
+          </button>
+          <div className="context-vol">
+            <span>音量</span>
+            {[0, 50, 100, 150].map((pct) => (
+              <button
+                key={pct}
+                type="button"
+                onClick={() => {
+                  setClientVol(menu.client.nickname, menu.client.id, pct / 100)
+                  setMenu(null)
+                }}
+              >
+                {pct}%
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

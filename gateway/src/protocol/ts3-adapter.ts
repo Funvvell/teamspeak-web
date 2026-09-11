@@ -8,6 +8,7 @@ import {
   listClients,
   sendTextMessage,
   clientMove,
+  poke as tsPoke,
   noopLogger,
   type Identity,
   type ClientInfo as TsClientInfo,
@@ -17,6 +18,8 @@ import type {
   ChannelNode,
   ClientInfo,
   GatewayToClient,
+  MessageTarget,
+  WhisperTarget,
 } from '../../../shared/types'
 import type { TsProtocolAdapter, VoiceFrame } from './adapter'
 
@@ -30,14 +33,19 @@ function formatAddr(host: string, port: number): string {
 }
 
 function loadOrCreateIdentity(): Identity {
+  // Per-session identity so multi-tab connections do not kick each other
+  try {
+    return generateIdentity(8)
+  } catch {
+    // fall through to disk identity
+  }
   try {
     if (fs.existsSync(IDENTITY_PATH)) {
       return identityFromString(fs.readFileSync(IDENTITY_PATH, 'utf8').trim())
     }
   } catch {
-    // fall through to generate
+    // ignore
   }
-  // Level 8 is widely required; upgrade is CPU-bound once and cached on disk.
   const identity = generateIdentity(8)
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true })
@@ -90,6 +98,9 @@ export function createTs3Adapter(
   let nickname = 'Guest'
   let talkingTimers = new Map<number, ReturnType<typeof setTimeout>>()
   let voiceHandlers = new Set<(f: VoiceFrame) => void>()
+  const whisperClients = new Set<number>()
+  const whisperChannels = new Set<number>()
+  let nicknameForWhisper = 'Guest'
 
   function rebuildTree(): ChannelNode[] {
     return channels.map((ch) => ({
@@ -247,10 +258,14 @@ export function createTs3Adapter(
           selfChannelId = toNumber(row.client_channel_id, selfChannelId)
         }
         const nick = row.client_nickname || nickname
+        const commander =
+          row.client_channel_commander === '1' ||
+          row.client_is_channel_commander === '1'
         const me = clients.find((x) => x.id === selfId)
         if (me) {
           me.channelId = selfChannelId
           me.nickname = nick
+          if (commander) me.isCommander = true
         } else {
           clients.push({
             id: selfId,
@@ -258,11 +273,33 @@ export function createTs3Adapter(
             channelId: selfChannelId,
             isTalking: false,
             isMuted: false,
+            isCommander: commander || undefined,
           })
         }
       }
     } catch {
       // optional
+    }
+
+    // Probe a few clients for channel commander flag (optional, rate-limited)
+    const probeIds = clients.filter((x) => x.id !== selfId).slice(0, 5).map((x) => x.id)
+    for (const id of probeIds) {
+      await sleep(80)
+      try {
+        const rows = await c.execCommandWithResponse(`clientinfo clid=${id}`, 2500)
+        const row = rows[0]
+        const cl = clients.find((x) => x.id === id)
+        if (cl && row) {
+          if (
+            row.client_channel_commander === '1' ||
+            row.client_is_channel_commander === '1'
+          ) {
+            cl.isCommander = true
+          }
+        }
+      } catch {
+        // restricted servers
+      }
     }
 
     // Ensure we know at least the channel we are in
@@ -478,8 +515,29 @@ export function createTs3Adapter(
       emitState()
     },
 
-    async sendText(target, text) {
+    async sendText(target: MessageTarget, text: string) {
       if (!client) throw new Error('Not connected')
+      const hasWhisper = whisperClients.size > 0 || whisperChannels.size > 0
+      const body = hasWhisper ? `[耳语] ${text}` : text
+
+      if (hasWhisper) {
+        for (const clid of whisperClients) {
+          try {
+            await sendTextMessage(client, 1, BigInt(clid), body)
+          } catch {
+            /* ignore single-target failure */
+          }
+        }
+        for (const cid of whisperChannels) {
+          try {
+            await sendTextMessage(client, 2, BigInt(cid), body)
+          } catch {
+            /* ignore */
+          }
+        }
+        return
+      }
+
       if (target === 'channel') {
         await sendTextMessage(client, 2, BigInt(selfChannelId), text)
       } else if (target === 'server') {
@@ -489,14 +547,29 @@ export function createTs3Adapter(
       }
     },
 
+    async poke(targetId: number, message?: string) {
+      if (!client) throw new Error('Not connected')
+      await tsPoke(client, targetId, message || '')
+    },
+
+    addWhisperTarget(target: WhisperTarget) {
+      if (target.kind === 'client') whisperClients.add(target.id)
+      else whisperChannels.add(target.id)
+    },
+
+    clearWhisperTargets() {
+      whisperClients.clear()
+      whisperChannels.clear()
+    },
+
     getChannelTree: () => rebuildTree(),
     getClients: () => clients,
 
-    sendVoice(data, codec = 4) {
+    sendVoice(data: Uint8Array, codec = 4) {
       client?.sendVoice(data, codec)
     },
 
-    onVoice(handler) {
+    onVoice(handler: (frame: VoiceFrame) => void) {
       voiceHandlers.add(handler)
       return () => voiceHandlers.delete(handler)
     },

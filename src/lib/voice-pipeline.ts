@@ -11,7 +11,10 @@ export const CHANNELS = 1
 /** 20ms @ 48kHz mono */
 export const FRAME_SAMPLES = 960
 
-export function encodeVoiceFrame(opus: Uint8Array, codec = CODEC_OPUS_VOICE): Uint8Array {
+export function encodeVoiceFrame(
+  opus: Uint8Array,
+  codec = CODEC_OPUS_VOICE,
+): Uint8Array {
   const out = new Uint8Array(2 + opus.length)
   out[0] = OPCODE_AUDIO
   out[1] = codec
@@ -19,13 +22,39 @@ export function encodeVoiceFrame(opus: Uint8Array, codec = CODEC_OPUS_VOICE): Ui
   return out
 }
 
+export function encodeVoiceFrameWithId(
+  opus: Uint8Array,
+  clientId: number,
+  codec = CODEC_OPUS_VOICE,
+): Uint8Array {
+  const out = new Uint8Array(4 + opus.length)
+  out[0] = OPCODE_AUDIO
+  out[1] = codec
+  out[2] = (clientId >> 8) & 0xff
+  out[3] = clientId & 0xff
+  out.set(opus, 4)
+  return out
+}
+
 export function decodeVoiceFrame(buf: ArrayBuffer | Uint8Array): {
   codec: number
+  clientId: number
   opus: Uint8Array
 } | null {
   const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
   if (u8.length < 2 || u8[0] !== OPCODE_AUDIO) return null
-  return { codec: u8[1], opus: u8.subarray(2) }
+  const codec = u8[1]
+  // New format: [1][codec][idHi][idLo][opus...] when length >= 4 and id bytes present
+  if (u8.length >= 4) {
+    const clientId = (u8[2] << 8) | u8[3]
+    // Heuristic: if remaining looks like opus (starts after 4), treat as new format
+    // Legacy frames have no id — keep clientId 0 and opus from offset 2 when short
+    // Prefer new format when byte length > 4
+    if (u8.length > 4) {
+      return { codec, clientId, opus: u8.subarray(4) }
+    }
+  }
+  return { codec, clientId: 0, opus: u8.subarray(2) }
 }
 
 export function webCodecsSupported(): boolean {
@@ -44,8 +73,10 @@ export interface VoicePipeline {
   ): Promise<void>
   stopCapture(): void
   /** Feed incoming opus from gateway for playback */
-  pushIncoming(opus: Uint8Array): void
+  pushIncoming(opus: Uint8Array, clientId?: number): void
   setOutputVolume(v: number): void
+  setClientVolume(clientId: number, v: number): void
+  getClientVolume(clientId: number): number
   close(): void
 }
 
@@ -63,6 +94,8 @@ export function createVoicePipeline(): VoicePipeline {
   let pcmLength = 0
   let closed = false
   let outputVolume = 1
+  const clientVolumes = new Map<number, number>()
+  let pendingClientId = 0
 
   function ensureCtx(): AudioContext {
     if (!audioCtx || audioCtx.state === 'closed') {
@@ -82,7 +115,7 @@ export function createVoicePipeline(): VoicePipeline {
     decoder = new AudioDecoder({
       output: (audioData) => {
         try {
-          playAudioData(audioData)
+          playAudioData(audioData, pendingClientId)
         } finally {
           audioData.close()
         }
@@ -99,7 +132,7 @@ export function createVoicePipeline(): VoicePipeline {
     return decoder
   }
 
-  function playAudioData(audioData: AudioData) {
+  function playAudioData(audioData: AudioData, clientId = 0) {
     const ctx = ensureCtx()
     if (!masterGain) return
     const frames = audioData.numberOfFrames
@@ -111,12 +144,19 @@ export function createVoicePipeline(): VoicePipeline {
 
     const src = ctx.createBufferSource()
     src.buffer = buffer
-    src.connect(masterGain)
+    const per = clientVolumes.get(clientId)
+    if (per !== undefined && per !== 1) {
+      const g = ctx.createGain()
+      g.gain.value = per
+      src.connect(g)
+      g.connect(masterGain)
+    } else {
+      src.connect(masterGain)
+    }
     const now = ctx.currentTime
     if (nextPlayTime < now + 0.02) nextPlayTime = now + 0.02
     src.start(nextPlayTime)
     nextPlayTime += buffer.duration
-    // Prevent unbounded drift if stream pauses
     if (nextPlayTime > now + 0.5) nextPlayTime = now + 0.05
   }
 
@@ -224,10 +264,11 @@ export function createVoicePipeline(): VoicePipeline {
     pcmLength = 0
   }
 
-  function pushIncoming(opus: Uint8Array) {
+  function pushIncoming(opus: Uint8Array, clientId = 0) {
     if (closed || !opus.length) return
     const dec = ensureDecoder()
     if (!dec || dec.state === 'closed') return
+    pendingClientId = clientId
     try {
       dec.decode(
         new EncodedAudioChunk({
@@ -242,8 +283,16 @@ export function createVoicePipeline(): VoicePipeline {
   }
 
   function setOutputVolume(v: number) {
-    outputVolume = Math.max(0, Math.min(1, v))
+    outputVolume = Math.max(0, Math.min(2, v))
     if (masterGain) masterGain.gain.value = outputVolume
+  }
+
+  function setClientVolume(clientId: number, v: number) {
+    clientVolumes.set(clientId, Math.max(0, Math.min(2, v)))
+  }
+
+  function getClientVolume(clientId: number) {
+    return clientVolumes.get(clientId) ?? 1
   }
 
   function close() {
@@ -262,5 +311,13 @@ export function createVoicePipeline(): VoicePipeline {
     masterGain = null
   }
 
-  return { startCapture, stopCapture, pushIncoming, setOutputVolume, close }
+  return {
+    startCapture,
+    stopCapture,
+    pushIncoming,
+    setOutputVolume,
+    setClientVolume,
+    getClientVolume,
+    close,
+  }
 }

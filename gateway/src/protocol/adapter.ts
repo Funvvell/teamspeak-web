@@ -2,6 +2,8 @@ import type {
   ChannelNode,
   ClientInfo,
   GatewayToClient,
+  MessageTarget,
+  WhisperTarget,
 } from '../../../shared/types'
 
 export interface VoiceFrame {
@@ -19,13 +21,12 @@ export interface TsProtocolAdapter {
   }): Promise<{ name: string; welcome: string; selfId: number }>
   disconnect(): Promise<void>
   joinChannel(channelId: number): Promise<void>
-  sendText(
-    target: 'channel' | 'server' | { client: number },
-    text: string,
-  ): void | Promise<void>
+  sendText(target: MessageTarget, text: string): void | Promise<void>
+  poke?(targetId: number, message?: string): void | Promise<void>
+  addWhisperTarget?(target: WhisperTarget): void
+  clearWhisperTargets?(): void
   getChannelTree(): ChannelNode[]
   getClients(): ClientInfo[]
-  /** Optional real-voice path */
   sendVoice?(data: Uint8Array, codec?: number): void
   onVoice?(handler: (frame: VoiceFrame) => void): () => void
 }

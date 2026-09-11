@@ -13,6 +13,8 @@ export interface ClientInfo {
   channelId: number
   isTalking: boolean
   isMuted: boolean
+  /** Channel commander flag when the server exposes it */
+  isCommander?: boolean
 }
 
 export type ConnectionState =
@@ -21,6 +23,15 @@ export type ConnectionState =
   | 'connected'
   | 'disconnected'
   | 'error'
+
+export type WhisperTarget =
+  | { kind: 'client'; id: number }
+  | { kind: 'channel'; id: number }
+
+export type MessageTarget =
+  | 'channel'
+  | 'server'
+  | { client: number }
 
 export type ClientToGateway =
   | {
@@ -34,10 +45,13 @@ export type ClientToGateway =
   | { type: 'join_channel'; channelId: number }
   | {
       type: 'send_message'
-      target: 'channel' | 'server' | { client: number }
+      target: MessageTarget
       text: string
     }
   | { type: 'mic'; enabled: boolean }
+  | { type: 'whisper_add'; target: WhisperTarget }
+  | { type: 'whisper_clear' }
+  | { type: 'poke'; targetId: number; message?: string }
 
 export type GatewayToClient =
   | {
@@ -60,6 +74,8 @@ export type GatewayToClient =
       target: string
       text: string
       ts: number
+      /** true when delivered via whisper targeting */
+      whisper?: boolean
     }
   | { type: 'error'; code: string; message: string }
 
