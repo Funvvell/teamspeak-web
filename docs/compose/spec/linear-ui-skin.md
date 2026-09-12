@@ -1,9 +1,9 @@
 ---
 feature: linear-ui-skin
-status: designed
+status: delivered
 updated: 2026-09-12
 branch: master
-commits: (pending)
+commits: 92492b7
 ---
 
 # Linear 风格 UI（WebSpeak 布局）
@@ -58,13 +58,13 @@ Linear 化：无渐变大光斑；面板炭灰 + 1px hairline；圆角 8px；按
 - **顶栏极细 1px 底边 + 薰衣草蓝「说话中」呼吸点**
 - 频道行 active：左侧 2px primary 竖条（Linear list 焦点感）
 
-## [S3] Out of Out of Scope
+## [S3] Out of Scope
 
 - 改业务逻辑 / 协议
 - 多主题切换（可后续加 light）
 
 ## Tasks
 
-- [ ] T1: styles.css 全量 Linear token 重写 — acceptance: 三栏仍在，无旧蓝渐变残留 (covers: S2)
-- [ ] T2: 微调 App 结构类名（若需）— (covers: S2; depends: T1)
-- [ ] T3: typecheck/build PASS + 打开预览 — (covers: S1, S2; depends: T1-T2)
+- [x] T1: styles.css 全量 Linear token 重写 (covers: S2)
+- [x] T2: 沿用现有 App 类名，无强制改 JSX (covers: S2; depends: T1)
+- [x] T3: typecheck/build PASS (covers: S1, S2; depends: T1-T2)
