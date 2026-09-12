@@ -950,6 +950,14 @@ export default function App() {
       })
       return
     }
+    // 服务器要求昵称至少 3 个字符（中文按字符数），不足则直接提示，避免 45s 超时
+    if (Array.from(nick).length < 3) {
+      setFieldErrors({
+        host: undefined,
+        nickname: '昵称至少 3 个字符（当前 ' + Array.from(nick).length + ' 个）',
+      })
+      return
+    }
     setFieldErrors({})
     patchTab(active.id, { host, port })
     connectTab(active.id, undefined, { host, port, nickname: nick })
