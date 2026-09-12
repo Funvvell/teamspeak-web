@@ -83,6 +83,7 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
   const analyserCtxRef = useRef<AudioContext | null>(null)
   const rafRef = useRef(0)
   const pipelineRef = useRef<VoicePipeline | null>(null)
+  const fxRef = useRef({ aec: true, agc: true })
   const frameCbRef = useRef(onOpusFrame)
   frameCbRef.current = onOpusFrame
   const selectedIdRef = useRef('')
@@ -120,6 +121,15 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     }
     await pipelineRef.current.setOutputDevice(deviceId)
   }, [])
+
+  const setAudioFx = (fx: { aec: boolean; agc: boolean }) => {
+    fxRef.current = { ...fxRef.current, ...fx }
+    pipelineRef.current?.setAudioFx(fxRef.current)
+    // 采集已开启时重启（新 constraints 生效，如关闭浏览器原生 AEC）
+    if (streamRef.current) {
+      void requestMic(selectedIdRef.current || undefined)
+    }
+  }
 
   const setVox = useCallback((patch: Partial<VoxSettings>) => {
     voxRef.current = { ...voxRef.current, ...patch }
@@ -173,9 +183,11 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
         audio: {
           deviceId: deviceId ? { exact: deviceId } : undefined,
           channelCount: 1,
-          echoCancellation: true,
+          // 软件 AEC/AGC 开启时关闭浏览器原生实现，避免双重处理相互干扰；
+          // 关闭时回退到浏览器原生（Chrome = AEC3）
+          echoCancellation: !fxRef.current.aec,
           noiseSuppression: true,
-          autoGainControl: true,
+          autoGainControl: !fxRef.current.agc,
         },
       })
       streamRef.current = stream
@@ -350,6 +362,7 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     setOutputDevice,
     setClientVolume,
     setMuted,
+    setAudioFx,
     setVox,
     keyLabel,
   }

@@ -85,6 +85,8 @@ export interface VoicePipeline {
   setOutputVolume(v: number): void
   setClientVolume(clientId: number, v: number): void
   getClientVolume(clientId: number): number
+  /** 切换回声消除（软件 AEC）/ 自动增益（重启采集生效） */
+  setAudioFx(fx: { aec: boolean; agc: boolean }): void
   setOutputDevice(deviceId: string): Promise<void>
   beep(freq?: number, durationSec?: number, gain?: number): void
   close(): void
@@ -106,6 +108,8 @@ export function createVoicePipeline(): VoicePipeline {
   const clientVolumes = new Map<number, number>()
   let pendingClientId = 0
   let sinkId = ''
+  let fxAec = true
+  let fxAgc = true
 
   function ensureCtx(): AudioContext {
     if (!audioCtx || audioCtx.state === 'closed') {
@@ -242,7 +246,7 @@ export function createVoicePipeline(): VoicePipeline {
 
     mediaStream = stream
     const ctx = ensureCtx()
-    // Separate context for capture so device rate can differ; resample via AudioContext
+    await ctx.audioWorklet.addModule('/aec-processor.js')
     await ctx.audioWorklet.addModule('/capture-processor.js')
     const source = ctx.createMediaStreamSource(stream)
     workletNode = new AudioWorkletNode(ctx, 'capture-processor')
@@ -252,7 +256,32 @@ export function createVoicePipeline(): VoicePipeline {
       pcmLength += pcm.length
       flushPcm()
     }
-    source.connect(workletNode)
+    // —— 低延迟音频处理链：软件 AEC（回声消除）→ AGC（自动增益）→ 采集 ——
+    // AEC 为 FDAF+NLMS 算法（reflex-aec，MIT），参考信号由 masterGain 旁路接入
+    // inputs[1]：同一 AudioContext 内样本级对齐，HOP=128 ≈ 2.7ms@48k，无额外缓冲
+    // AGC 用 Web Audio DynamicsCompressorNode（原生节点，零额外延迟）
+    let head: AudioNode = source
+    if (fxAec && masterGain) {
+      const aecNode = new AudioWorkletNode(ctx, 'aec-processor', {
+        numberOfInputs: 2,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+      })
+      source.connect(aecNode, 0, 0)
+      masterGain.connect(aecNode, 0, 1) // 播放输出 → AEC 参考输入
+      head = aecNode
+    }
+    if (fxAgc) {
+      const agc = ctx.createDynamicsCompressor()
+      agc.threshold.value = -24
+      agc.knee.value = 12
+      agc.ratio.value = 8
+      agc.attack.value = 0.003
+      agc.release.value = 0.12
+      head.connect(agc)
+      head = agc
+    }
+    head.connect(workletNode)
     // Keep graph alive without feedback to speakers
     const mute = ctx.createGain()
     mute.gain.value = 0
@@ -276,6 +305,11 @@ export function createVoicePipeline(): VoicePipeline {
     encoder = null
     pcmBuffer = []
     pcmLength = 0
+  }
+
+  function setAudioFx(fx: { aec: boolean; agc: boolean }) {
+    fxAec = fx.aec
+    fxAgc = fx.agc
   }
 
   function pushIncoming(opus: Uint8Array, clientId = 0) {
@@ -358,6 +392,7 @@ export function createVoicePipeline(): VoicePipeline {
   return {
     startCapture,
     stopCapture,
+    setAudioFx,
     pushIncoming,
     setOutputVolume,
     setClientVolume,

@@ -22,6 +22,7 @@
     "@honeybbq/teamspeak-client": "^0.2.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "reflex-aec": "^1.1.1",
     "simple-rnnoise-wasm": "^1.1.0",
     "ws": "^8.18.0"
   },

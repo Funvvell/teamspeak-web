@@ -5,6 +5,8 @@ export const LS_FAV = 'tsweb:favorites'
 export const LS_VOL = 'tsweb:volumes'
 export const LS_COLLAPSED = 'tsweb:collapsed'
 export const LS_RECENT = 'tsweb:recent'
+export const LS_AEC = 'tsw.aec'
+export const LS_AGC = 'tsw.agc'
 export const LS_RNN = 'tsweb:rnnoise'
 export const LS_DESKTOP = 'tsweb:desktop-notify'
 

@@ -18,6 +18,8 @@ import {
 } from './lib/notify'
 import { getGatewayToken, setGatewayToken } from './lib/gateway-client'
 import {
+  LS_AEC,
+  LS_AGC,
   LS_DESKTOP,
   LS_FAV,
   LS_RNN,
@@ -188,6 +190,12 @@ export default function App() {
   const [recent, setRecent] = useState<RecentServer[]>(() => loadRecent())
   const [rnnoiseOn, setRnnoiseOn] = useState(
     () => localStorage.getItem(LS_RNN) !== '0',
+  )
+  const [aecOn, setAecOn] = useState(
+    () => localStorage.getItem(LS_AEC) !== '0',
+  )
+  const [agcOn, setAgcOn] = useState(
+    () => localStorage.getItem(LS_AGC) !== '0',
   )
   const [desktopNotifyOn, setDesktopNotifyOn] = useState(
     () => localStorage.getItem(LS_DESKTOP) !== '0',
@@ -1014,9 +1022,14 @@ export default function App() {
     setSoundsOn(true)
     setSoundsEnabled(true)
     setRnnoiseOn(true)
+    setAecOn(true)
+    setAgcOn(true)
     setDesktopNotifyOn(true)
     localStorage.setItem(LS_RNN, '1')
+    localStorage.setItem(LS_AEC, '1')
+    localStorage.setItem(LS_AGC, '1')
     localStorage.setItem(LS_DESKTOP, '1')
+    mic.setAudioFx({ aec: true, agc: true })
     setSinkId('')
     applySinkId('')
     void mic.setOutputDevice('')
@@ -1047,6 +1060,24 @@ export default function App() {
     setRnnoiseOn((v) => {
       const next = !v
       localStorage.setItem(LS_RNN, next ? '1' : '0')
+      return next
+    })
+  }
+
+  const toggleAec = () => {
+    setAecOn((v) => {
+      const next = !v
+      localStorage.setItem(LS_AEC, next ? '1' : '0')
+      mic.setAudioFx({ aec: next, agc: agcOn })
+      return next
+    })
+  }
+
+  const toggleAgc = () => {
+    setAgcOn((v) => {
+      const next = !v
+      localStorage.setItem(LS_AGC, next ? '1' : '0')
+      mic.setAudioFx({ aec: aecOn, agc: next })
       return next
     })
   }
@@ -2052,6 +2083,12 @@ export default function App() {
               </SettingRow>
               <SettingRow label="AI 降噪 RNNoise">
                 <Switch on={rnnoiseOn} onToggle={toggleRnnoise} label="AI 降噪 RNNoise" />
+              </SettingRow>
+              <SettingRow label="回声消除 · 软件 AEC">
+                <Switch on={aecOn} onToggle={toggleAec} label="回声消除 · 软件 AEC" />
+              </SettingRow>
+              <SettingRow label="自动增益">
+                <Switch on={agcOn} onToggle={toggleAgc} label="自动增益" />
               </SettingRow>
               {renderActivationControls()}
               <SettingRow
