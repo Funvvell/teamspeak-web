@@ -1,9 +1,9 @@
 ---
 feature: voice-deep-ptt-vox
-status: designed
+status: delivered
 updated: 2026-09-12
 branch: master
-commits: (pending)
+commits: 6685d6f
 ---
 
 # 语音深水：PTT / VOX
@@ -52,6 +52,6 @@ pttHeld: boolean
 
 ## Tasks
 
-- [ ] T1: mic 门限模式 open/vox/ptt + 持久化 — (covers: S2)
-- [ ] T2: UI 控件与提示 — (covers: S2; depends: T1)
-- [ ] T3: typecheck/build + 本地逻辑验证 — (covers: S1, S2; depends: T1-T2)
+- [x] T1: mic 门限模式 open/vox/ptt + 持久化 — startCapture 回调前 shouldSend (covers: S2)
+- [x] T2: UI 控件与提示 — 模式/阈值/按键捕获 (covers: S2; depends: T1)
+- [x] T3: typecheck/build PASS (covers: S1, S2; depends: T1-T2)
