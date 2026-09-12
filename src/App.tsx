@@ -511,7 +511,15 @@ export default function App() {
       if (!opts?.auto) patchTab(id, { lastError: '请填写服务器地址和昵称' })
       return
     }
-    tab.client?.close()
+    // Avoid connect storms (manual spam or auto-reconnect while handshake running)
+    if (tab.connState === 'connecting') return
+    if (opts?.auto && tab.connState === 'connected') return
+    // Tear down previous socket without waiting
+    try {
+      tab.client?.close()
+    } catch {
+      /* ignore */
+    }
     const client = createGatewayClient({
       onMessage: onMessage(id),
       onSocketStatus: (s) => {

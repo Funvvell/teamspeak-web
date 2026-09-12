@@ -10,6 +10,8 @@ const OPCODE_AUDIO = 1
 
 export class Session {
   private adapter: ReturnType<AdapterFactory> | null = null
+  private connecting = false
+  private connectGen = 0
 
   constructor(
     private readonly ws: WebSocket,
@@ -27,7 +29,7 @@ export class Session {
   }
 
   handleRaw(data: string | Buffer | ArrayBuffer | Buffer[]) {
-    // Binary frames: [opcode:u8=1][codec:u8][opus payload...]
+    // Binary frames: [opcode:u8=1][codec:u8][opus payload...] or [1][codec][id u16][opus]
     if (typeof data !== 'string') {
       const buf = Buffer.isBuffer(data)
         ? data
@@ -35,8 +37,15 @@ export class Session {
           ? Buffer.concat(data)
           : Buffer.from(data as ArrayBuffer)
       if (buf.length >= 2 && buf[0] === OPCODE_AUDIO && this.adapter?.sendVoice) {
-        const codec = buf[1]
-        this.adapter.sendVoice(buf.subarray(2), codec)
+        try {
+          const codec = buf[1]
+          this.adapter.sendVoice(buf.subarray(2), codec)
+        } catch (err) {
+          console.warn(
+            '[session] sendVoice frame error:',
+            err instanceof Error ? err.message : err,
+          )
+        }
       }
       return
     }
@@ -50,6 +59,11 @@ export class Session {
     }
     void this.handle(msg).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
+      // Benign: user already in target channel
+      if (/already member of channel/i.test(message)) {
+        console.warn('[session]', message)
+        return
+      }
       console.error('[session]', message)
       this.send({ type: 'error', code: 'handler', message })
       this.status('error', message)
@@ -59,45 +73,61 @@ export class Session {
   private async handle(msg: ClientToGateway) {
     switch (msg.type) {
       case 'connect': {
-        await this.teardownAdapter()
-        console.log(
-          `[session] connect ${msg.host}:${msg.port} as ${msg.nickname}`,
-        )
-        this.status('connecting', `Connecting to ${msg.host}:${msg.port}`)
-        this.adapter = this.createAdapter((m) => this.send(m))
-        if (this.adapter.onVoice) {
-          this.adapter.onVoice((frame) => {
-            if (this.ws.readyState !== this.ws.OPEN) return
-            // [1][codec][clientId u16 BE][opus]
-            const header = Buffer.alloc(4)
-            header[0] = OPCODE_AUDIO
-            header[1] = frame.codec & 0xff
-            header.writeUInt16BE(frame.clientId & 0xffff, 2)
-            this.ws.send(Buffer.concat([header, Buffer.from(frame.data)]))
-          })
+        // Ignore duplicate connect while one is in flight (auto-reconnect storms)
+        if (this.connecting) {
+          console.warn('[session] connect ignored — already connecting')
+          this.status('connecting', '已有连接进行中，请稍候')
+          return
         }
-        const info = await this.adapter.connect({
-          host: msg.host,
-          port: msg.port,
-          nickname: msg.nickname,
-          password: msg.password,
-        })
-        console.log(
-          `[session] connected ${msg.host}:${msg.port} name=${info.name} selfId=${info.selfId}`,
-        )
-        this.send({
-          type: 'server_info',
-          name: info.name,
-          welcome: info.welcome,
-          selfId: info.selfId,
-        })
-        this.status('connected')
-        this.send({
-          type: 'event_log',
-          event: 'connect',
-          nickname: msg.nickname,
-          ts: Date.now(),
-        })
+        this.connecting = true
+        const gen = ++this.connectGen
+        try {
+          await this.teardownAdapter()
+          console.log(
+            `[session] connect ${msg.host}:${msg.port} as ${msg.nickname}`,
+          )
+          this.status('connecting', `Connecting to ${msg.host}:${msg.port}`)
+          this.adapter = this.createAdapter((m) => this.send(m))
+          if (this.adapter.onVoice) {
+            this.adapter.onVoice((frame) => {
+              if (this.ws.readyState !== this.ws.OPEN) return
+              if (gen !== this.connectGen) return
+              const header = Buffer.alloc(4)
+              header[0] = OPCODE_AUDIO
+              header[1] = frame.codec & 0xff
+              header.writeUInt16BE(frame.clientId & 0xffff, 2)
+              this.ws.send(Buffer.concat([header, Buffer.from(frame.data)]))
+            })
+          }
+          const info = await this.adapter.connect({
+            host: msg.host,
+            port: msg.port,
+            nickname: msg.nickname,
+            password: msg.password,
+          })
+          if (gen !== this.connectGen) {
+            // Superseded by a newer connect/teardown
+            return
+          }
+          console.log(
+            `[session] connected ${msg.host}:${msg.port} name=${info.name} selfId=${info.selfId}`,
+          )
+          this.send({
+            type: 'server_info',
+            name: info.name,
+            welcome: info.welcome,
+            selfId: info.selfId,
+          })
+          this.status('connected')
+          this.send({
+            type: 'event_log',
+            event: 'connect',
+            nickname: msg.nickname,
+            ts: Date.now(),
+          })
+        } finally {
+          if (gen === this.connectGen) this.connecting = false
+        }
         return
       }
       case 'disconnect': {

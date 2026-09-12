@@ -560,7 +560,14 @@ export function createTs3Adapter(
 
     async joinChannel(channelId: number) {
       if (!client || !selfId) throw new Error('Not connected')
-      await clientMove(client, selfId, BigInt(channelId))
+      if (selfChannelId === channelId) return
+      try {
+        await clientMove(client, selfId, BigInt(channelId))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (/already member of channel/i.test(msg)) return
+        throw err
+      }
       selfChannelId = channelId
       const me = clients.find((c) => c.id === selfId)
       if (me) me.channelId = channelId
@@ -618,7 +625,18 @@ export function createTs3Adapter(
     getClients: () => clients,
 
     sendVoice(data: Uint8Array, codec = 4) {
-      client?.sendVoice(data, codec)
+      if (!client || !data.length) return
+      try {
+        client.sendVoice(data, codec)
+      } catch (err) {
+        // UDP socket can be closed after disconnect/reconnect races
+        const msg = err instanceof Error ? err.message : String(err)
+        if (/dgram|Not running|ECONN|closed/i.test(msg)) {
+          console.warn('[ts3] sendVoice skipped:', msg)
+          return
+        }
+        console.warn('[ts3] sendVoice error:', msg)
+      }
     },
 
     onVoice(handler: (frame: VoiceFrame) => void) {
