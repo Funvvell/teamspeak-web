@@ -1,211 +1,323 @@
 # TeamSpeak Web
 
-浏览器里的 TeamSpeak 客户端：通过本地 **WebSocket 网关** 桥接真实的 TS3 协议栈。
+> 浏览器里的 TeamSpeak 3 语音客户端 —— 打开网页即可连麦，无需安装任何客户端软件。
 
-## 为什么需要网关？
+<div align="center">
 
-浏览器无法直接使用 TeamSpeak 3 的 **UDP + 专有加密协议**。因此架构固定为：
+![Node](https://img.shields.io/badge/Node.js-22%2B-339933?logo=nodedotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
+![Platforms](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20Docker-4A90D9)
+![Protocol](https://img.shields.io/badge/Protocol-TeamSpeak%203%20UDP-0B8A5B)
 
-```
-Browser (Vite + React + TS)
-    │  WebSocket（JSON 控制消息 + Binary 音频帧）
-    ▼
-Gateway (Node.js + TypeScript, ws)
-    │  @honeybbq/teamspeak-client（真实 TS3 客户端协议）
-    ▼
-TeamSpeak 3 Server (UDP, 默认 9987)
-```
+</div>
 
-## 目录
+TeamSpeak Web 通过一个轻量的 **Node.js WebSocket 网关**桥接 TeamSpeak 3 服务器，前端是 React 19 + TypeScript 的单页应用：**用户只要打开网址，就能连接任意 TS3 服务器**，支持文字聊天、语音通话（WebCodecs Opus）、声控 VOX / 按键 PTT、频道管理、成员右键菜单等完整功能。
 
-| 路径 | 说明 |
+界面采用 Figma 高保真设计稿还原：浅灰白底 + 雾蓝渐变晕染背景 + **轻磨砂玻璃卡片**，柔和阴影、圆角控件、充足留白，2D 平面 UI 风格（非 Discord 风格、非深色模式）。
+
+---
+
+## ✨ 特性
+
+| 类别 | 能力 |
 |------|------|
-| `index.html` | 前端入口（Vite） |
-| `src/` | React UI：连接表单、频道树、聊天、麦克风 |
-| `gateway/` | Node 网关：静态托管 + `/ws` + Session |
-| `gateway/src/protocol/ts3-adapter.ts` | 真实 TS3 协议适配器 |
-| `gateway/src/protocol/mock-adapter.ts` | 开发用 Mock（`PROTOCOL=mock`） |
-| `shared/types.ts` | WebSocket 消息契约 |
-| `docs/compose/spec/` | 设计规格 |
+| 🔊 语音 | WebCodecs Opus 编解码、声控 VOX / 常开 / 按键 PTT（默认空格）、AI 降噪（RNNoise）、麦克风自动识别与电平、输出设备选择 |
+| 💬 聊天 | 频道消息 / 服务器消息 / 私聊、事件流（进入 / 离开 / 移动 / 连接）、系统通知音效、桌面通知 |
+| 🏷️ 频道 | 频道树按 `channel_order` 排序、可折叠、双击加入、游客接待等权限约束 |
+| 👥 成员 | 说话 / 闭麦 / 仅收听三态图标、国家旗、按成员音量记忆（0–150%）、右键菜单：私聊 / Poke / 耳语 / 复制昵称 / 快捷音量 |
+| 🖥️ 多开 | 顶栏多服务器标签，仅活动标签上行麦克风 |
+| 🔐 安全 | WS 帧载荷上限、并发连接数上限、可选的网关访问令牌（`GATEWAY_TOKEN`） |
+| 🛡️ 健壮 | 断线自动重连、防重连风暴、mock 定时器防泄漏、二进制帧防御、ESLint + Vitest 质量门 |
 
-## 本地开发
+---
 
-```bash
-npm install
-npm run build
-npm start
-# 打开 http://127.0.0.1:8080
+## 🏗️ 架构
+
+```
+┌────────────────────────────────────────────────────────┐
+│                      浏览器 (任意平台)                   │
+│   React 19 SPA · 毛玻璃 UI · WebCodecs Opus 收发        │
+│         │                                               │
+│         │  WebSocket（JSON 控制消息 + Binary 音频帧）     │
+└─────────┼──────────────────────────────────────────────┘
+          ▼
+┌────────────────────────────────────────────────────────┐
+│                Node.js 网关（Windows / Linux / Docker） │
+│   · 静态托管 dist/（HTTP）                               │
+│   · /ws WebSocket 会话：帧防御 · 连接数上限 · maxPayload │
+│   · ts3-adapter：真实 TS3 客户端协议                     │
+└─────────┼──────────────────────────────────────────────┘
+          │ UDP（默认 9987，ECDH/RSA/EAX 加密握手）
+          ▼
+┌────────────────────────────────────────────────────────┐
+│               TeamSpeak 3 Server（你的服务器）           │
+└────────────────────────────────────────────────────────┘
 ```
 
-默认监听 **0.0.0.0:8080**（服务器部署）。本机只绑回环：
+浏览器无法直接使用 TeamSpeak 3 的 **UDP + 专有加密协议**，因此网关是必须的一环：它负责 UDP 握手、加密、语音帧转发，浏览器只通过 WebSocket 与网关通信。
+
+**Mock 模式**（`PROTOCOL=mock`）：无需真实服务器即可体验全部 UI 功能，内置一套中文演示数据（6 频道 / 17 成员），适合开发调试与演示。
+
+---
+
+## 📸 界面预览
+
+| 登录页 | 主界面 | 设置页 |
+|--------|--------|--------|
+| ![登录页](docs/screenshots/login.png) | ![主界面](docs/screenshots/main.png) | ![设置页](docs/screenshots/settings.png) |
+
+> 截图对应 `PROTOCOL=mock` 演示模式下的完整界面：登录 → 频道树 / 成员三态 / 聊天事件 → 音频与语音、帐号与身份设置。
+
+---
+
+## 🚀 快速开始（Docker，1 分钟）
 
 ```bash
-# Linux/macOS
-HOST=127.0.0.1 npm start
-# PowerShell
-$env:HOST = "127.0.0.1"; npm start
-```
-
-默认协议为 **真实 TS3**（`PROTOCOL=ts3`）。要用 Mock：
-
-```bash
-# PowerShell
-$env:PROTOCOL = "mock"
-npm start
-```
-
-开发热更新：
-
-```bash
-npm run dev
-# Vite: http://localhost:5173  （已代理 /ws → 127.0.0.1:8080）
-# Gateway: ws://127.0.0.1:8080/ws
-```
-
-## 服务器部署（任意浏览器访问网址）
-
-### 要求
-
-| 项 | 说明 |
-|----|------|
-| Node.js | 20+（推荐 22） |
-| 防火墙 | 放行网关端口（默认 8080/TCP） |
-| **HTTPS** | **公网必须**。浏览器在非 localhost 下拒绝麦克风权限（`getUserMedia` / WebCodecs） |
-| 网络 | 服务器主机必须能访问目标 TeamSpeak 的 UDP（默认 9987） |
-
-### 方式 A：Docker Compose（推荐）
-
-```bash
-git clone <your-repo-url>
+git clone https://github.com/Funvvell/teamspeak-web.git
 cd teamspeak-web
 docker compose up -d --build
 # 浏览器访问 http://<服务器IP>:8080
 ```
 
-数据（TS 身份）在 volume `tsweb-data`。
+默认监听 `0.0.0.0:8080`，协议为真实 TS3（`PROTOCOL=ts3`）。TS3 身份持久化在 volume `tsweb-data`。
 
-### 方式 B：源码 + systemd（Linux）
+---
+
+## 📦 安装部署
+
+### 方式 A：Docker Compose（推荐，Linux / Windows Server 通用）
 
 ```bash
-# 1. 部署到 /opt/teamspeak-web
+git clone https://github.com/Funvvell/teamspeak-web.git
+cd teamspeak-web
+docker compose up -d --build
+```
+
+| 项 | 说明 |
+|----|------|
+| 前置 | Docker Engine 20.10+（Windows Server 2019+/2022 启用 WSL2 或 Hyper-V 容器） |
+| 端口 | 8080/TCP（Web + WS），出站 UDP 9987（连 TS3） |
+| 数据 | TS 身份存储在 Docker volume `tsweb-data`，重建容器不丢失 |
+| 日志 | `docker compose logs -f` |
+
+常用运维命令：
+
+```bash
+docker compose down          # 停止
+docker compose up -d         # 重新启动
+docker compose pull && docker compose up -d --build   # 升级
+```
+
+### 方式 B：Windows Server 手动部署（Node.js + NSSM 开机自启）
+
+1. **安装 Node.js 22 LTS**（PowerShell，管理员）：
+
+   ```powershell
+   winget install OpenJS.NodeJS.LTS
+   # 或到 https://nodejs.org 下载 LTS 安装包
+   ```
+
+2. **获取代码并构建**：
+
+   ```powershell
+   git clone https://github.com/Funvvell/teamspeak-web.git
+   cd teamspeak-web
+   npm ci
+   npm run build
+   ```
+
+3. **注册为 Windows 服务（NSSM 实现开机自启）**：
+
+   下载 [NSSM](https://nssm.cc/download) 解压到 `C:\nssm`，然后以管理员运行：
+
+   ```powershell
+   cd C:\nssm
+   .\nssm.exe install TeamSpeakWeb "C:\Program Files\nodejs\node.exe" "C:\teamspeak-web\node_modules\tsx\dist\cli.mjs gateway\src\index.ts"
+   .\nssm.exe set TeamSpeakWeb AppDirectory C:\teamspeak-web
+   .\nssm.exe set TeamSpeakWeb AppEnvironmentExtra PROTOCOL=ts3 PORT=8080 HOST=0.0.0.0
+   .\nssm.exe set TeamSpeakWeb Start SERVICE_AUTO_START
+   .\nssm.exe start TeamSpeakWeb
+   ```
+
+   > 说明：`npm start` 实际执行 `tsx gateway/src/index.ts`，NSSM 直接调用 `tsx` 的 CLI 入口，避免依赖 npm 脚本环境。
+
+4. **放行防火墙**（管理员 PowerShell）：
+
+   ```powershell
+   netsh advfirewall firewall add rule name="TeamSpeakWeb HTTP" dir=in action=allow protocol=TCP localport=8080
+   # 出站 UDP 9987 默认放行；若服务器出站受限请同样放行
+   ```
+
+5. **验证**：浏览器打开 `http://<服务器IP>:8080/health`，应返回 `{"ok":true,"protocol":"ts3",...}`。
+
+### 方式 C：Linux 手动部署（systemd）
+
+```bash
+# 1. 安装 Node.js 22（Ubuntu/Debian 示例）
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# 2. 部署到 /opt/teamspeak-web
 sudo mkdir -p /opt/teamspeak-web
 sudo rsync -a --exclude node_modules --exclude dist ./ /opt/teamspeak-web/
 cd /opt/teamspeak-web
 sudo npm ci
 sudo npm run build
 
-# 2. 安装服务
+# 3. 安装 systemd 服务并启用
 sudo cp deploy/teamspeak-web.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now teamspeak-web
 sudo systemctl status teamspeak-web
-```
 
-### 方式 C：只开防火墙（无 HTTPS，仅内网/试验）
-
-```bash
-npm run build
-HOST=0.0.0.0 PORT=8080 npm start
-# Ubuntu 示例
+# 4. 防火墙（Ubuntu 示例）
 sudo ufw allow 8080/tcp
 ```
 
-访问 `http://<IP>:8080` 可看界面、连服务器、文字聊天。  
-**麦克风会失败**（非安全上下文）——要语音必须上 HTTPS。
+### 🔐 HTTPS 与反向代理（生产必做）
 
-### 反向代理 + HTTPS（生产必做）
+浏览器**只有在安全上下文（HTTPS 或 localhost）下才允许使用麦克风**（`getUserMedia` / WebCodecs）。公网部署必须上 HTTPS：
 
-1. 域名 A 记录指向服务器  
-2. Nginx 反代本机 `8080`，并正确转发 WebSocket（`/ws` 的 `Upgrade`/`Connection`）  
-3. Let's Encrypt 签发证书  
+1. 域名 A 记录指向服务器；
+2. Nginx 反代本机 `8080`，并正确转发 WebSocket（`/ws` 的 `Upgrade` / `Connection` 头）；
+3. Let's Encrypt 签发证书。
 
-参考配置：`deploy/nginx.conf.example`  
-
-关键片段：
+参考配置见 `deploy/nginx.conf.example`，关键片段：
 
 ```nginx
-location /ws {
-    proxy_pass http://127.0.0.1:8080;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
+server {
+    listen 443 ssl;
+    server_name ts.example.com;
+    ssl_certificate     /etc/letsencrypt/live/ts.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ts.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    location /ws {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
 }
 ```
 
-用户访问 **https://teamspeak.example.com** 即可，任意浏览器都能开麦说话。
+用户访问 `https://ts.example.com` 即可开麦说话。
 
-### 环境变量
+---
+
+## ⚙️ 配置（环境变量）
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
 | `HOST` | `0.0.0.0` | 监听地址 |
-| `PORT` | `8080` | HTTP/WS 端口 |
-| `PROTOCOL` | `ts3` | `ts3` 真实协议 / `mock` 模拟 |
+| `PORT` | `8080` | HTTP / WS 端口 |
+| `PROTOCOL` | `ts3` | `ts3` 真实协议 / `mock` 演示模式 |
+| `GATEWAY_TOKEN` | 空 | 非空则 `/ws` 需 `?token=` 或 `Authorization: Bearer` |
+| `DEFAULT_HOST` | 空 | 首次打开预填服务器地址 |
+| `DEFAULT_PORT` | `9987` | 预填端口 |
+| `DEFAULT_NICKNAME` | 空 | 预填昵称 |
+| `MAX_PAYLOAD` | `1048576` | WS 单帧载荷上限（字节），防超长帧耗尽内存 |
+| `MAX_CONNECTIONS` | `64` | 并发 WS 连接上限，防资源耗尽 |
+| `TS_CONNECT_TIMEOUT_MS` | `45000` | TS3 握手超时（毫秒） |
+| `TS_WELCOME_WAIT_MS` | `1500` | 连接后等待欢迎消息的缓冲（毫秒） |
+
+Windows PowerShell 设置方式：
+
+```powershell
+$env:PROTOCOL = "ts3"
+$env:PORT = "8080"
+npm start
+```
 
 ### 安全注意
 
-- 当前**无登录体系**，任何能打开网址的人都能用网关连任意 TS 服务器。  
-- 公网请：限制源 IP、加反代 Basic Auth / SSO，或仅内网开放。  
+- 默认**无登录体系**：任何能访问网址的人都能用网关连接任意 TS 服务器。
+- 公网建议：限制源 IP、反向代理加 Basic Auth / SSO，或仅内网开放。
 - 服务器密码只在内存中用于当次连接，不会写日志。
+- 网关内置防护：WS 帧载荷上限（`MAX_PAYLOAD`）、并发连接数上限（`MAX_CONNECTIONS`）、二进制帧防御、未知 opcode 丢弃。
 
-## 已实现
+---
 
-- 连接任意可达 TS3 服务器（UDP 握手、ECDH/RSA/EAX）
-- 频道树按 `channel_order` 排序、可折叠子频道
-- 事件日志（进入/离开/移动/连接），右栏「聊天 / 事件」切换
-- 成员国家旗（服务器提供 `client_country` 时）
-- **多开**：顶栏多服务器标签，`+` 新建；仅活动标签上行麦克风
-- 网关可选 `GATEWAY_TOKEN`；`/health`、`/config`；`DEFAULT_HOST` 预填
-- 断线自动重连；通知音效；输出设备选择
-- **发送门限**：常开 / VOX 声控 / PTT 按键说话（默认空格）
-- 成员**右键菜单**：私聊 / Poke / 耳语 / 复制昵称 / 快捷音量
-- **按成员音量**（0–150%，按服务器记住）
-- 麦克风自动识别 + 电平 + WebCodecs Opus 收发
-- Mock 模式、Docker/反代部署说明
-
-## 环境变量（网关）
-
-| 变量 | 默认 | 说明 |
-|------|------|------|
-| `HOST` | `0.0.0.0` | 监听地址 |
-| `PORT` | `8080` | HTTP/WS |
-| `PROTOCOL` | `ts3` | `ts3` / `mock` |
-| `GATEWAY_TOKEN` | 空 | 非空则 `/ws` 需 `?token=` |
-| `DEFAULT_HOST` | 空 | 首次打开预填服务器 |
-| `DEFAULT_PORT` | `9987` | 预填端口 |
-| `DEFAULT_NICKNAME` | 空 | 预填昵称 |
-| `MAX_PAYLOAD` | 1048576 | WS 单帧载荷上限（字节），防超长帧耗尽内存 |
-| `MAX_CONNECTIONS` | 64 | 并发 WS 连接上限，防资源耗尽 |
-
-## 验证
+## 🛠️ 开发
 
 ```bash
-npm run typecheck
-npm run lint
-npm run test:unit
+npm install
+npm run dev        # Vite(:5173) + 网关(:8080)，热更新
+npm run typecheck  # 前端 + 网关双端 tsc
+npm run lint       # ESLint（0 error / 0 warning 为通过）
+npm run test:unit  # Vitest 单元测试
+npm test           # typecheck + lint + test:unit 全量门禁
+npm run build:web  # 构建前端到 dist/
+
+# Mock 演示模式（无需真实服务器）
+$env:PROTOCOL = "mock"; npm start
+
+# 冒烟验证
+npm run smoke:ws
 npm run smoke:voice
 npm run smoke:ts3 -- <ts-host> [port]
-npm run smoke:ws
 ```
 
-## WebSocket 契约（摘要）
+### 代码结构
 
-客户端 → 网关：`connect` / `disconnect` / `join_channel` / `send_message` / `mic` / `whisper_add` / `whisper_clear` / `poke`  
-网关 → 客户端：`status` / `server_info` / `channel_tree` / `client_list` / `message` / `error`  
-Binary 帧：`[1][codec][clientId u16 BE][opus payload]`
+```
+├── src/                    # React 前端
+│   ├── App.tsx             # 主应用（登录 / 主界面 / 设置）
+│   ├── components/         # 图标 / 控件 / 频道树等拆分组件
+│   ├── lib/                # 网关客户端 / 麦克风 / 语音管线 / 工具
+│   └── styles.css          # 毛玻璃 UI 主题
+├── gateway/                # Node 网关
+│   └── src/protocol/       # ts3-adapter（真实协议）/ mock-adapter（演示）
+├── shared/types.ts         # WebSocket 消息契约
+├── deploy/                 # systemd / Nginx 参考配置
+└── docs/                   # 设计规格 / 截图
+```
 
-完整类型见 `shared/types.ts`。
+---
 
-## 协议库
+## 📡 WebSocket 协议（摘要）
 
-使用 [@honeybbq/teamspeak-client](https://www.npmjs.com/package/@honeybbq/teamspeak-client)（MIT，纯 TypeScript 客户端协议）。
+客户端 → 网关：`connect` / `disconnect` / `join_channel` / `send_message` / `mic` / `whisper_add` / `whisper_clear` / `poke`
 
-其他参考实现：
+网关 → 客户端：`status` / `server_info` / `channel_tree` / `client_list` / `message` / `error`
 
-- [ReSpeak/tsclientlib](https://github.com/ReSpeak/tsclientlib)（Rust）
-- [Moepchi/webspeak3](https://github.com/Moepchi/webspeak3)
-- [EchoSixHIYA/WebSpeak-client-for-TeamSpeak](https://github.com/EchoSixHIYA/WebSpeak-client-for-TeamSpeak)（AGPL-3.0）
+音频帧（Binary）：`[opcode:u8=1][codec:u8][clientId u16 BE][opus payload]`
 
-## 免责声明
+完整类型定义见 `shared/types.ts`。
 
-社区项目，与 TeamSpeak Systems GmbH 无关。商标归其权利人所有。
+---
+
+## 🔧 故障排查
+
+| 现象 | 原因与处理 |
+|------|------------|
+| 连接超时（45s） | ① 确认地址是 TS3 语音口 **UDP 9987**（不是 ServerQuery 的 TCP 10011）；② 服务器是否在线且允许本机访问；③ 防火墙 / 安全组是否放行 **UDP**；④ 是否需要服务器密码。**注意**：多数服务器要求昵称**至少 3 个字符**，中文短昵称（如 2 字）会被服务器直接拒绝，客户端表现为超时——前端已做即时校验 |
+| 中文昵称乱码 / 无法连接 | 确认服务器端未限制昵称长度；日志中昵称乱码多为 Windows 控制台编码显示问题，不影响实际收发 |
+| 页面打不开 | 检查 `dist/` 是否已构建（`npm run build`）；健康检查 `http://<host>:8080/health` |
+| 能进界面但不能开麦 | 非 HTTPS / 非 localhost 环境下浏览器拒绝麦克风权限，必须上 HTTPS |
+| `GATEWAY_TOKEN` 401 | 连接时需带 `?token=` 或 `Authorization: Bearer <token>` |
+| 频繁掉线 | 检查网关日志；确认服务器未限制同 IP 连接数；`MAX_CONNECTIONS` 是否过小 |
+
+---
+
+## 🤝 参考与致谢
+
+本项目在协议实现与架构设计上参考了以下开源项目，特此致谢：
+
+- **[webspeak](https://github.com/Betrayd/webspeak)**（LGPL-3.0）—— 浏览器端 TeamSpeak 3 客户端的代表性实现，本项目"浏览器直连 TS3"的 Web 化思路参考了该项目
+- **[webspeak3](https://github.com/Moepchi/webspeak3)** —— 基于 TypeScript 的 TeamSpeak 3 Web 客户端，本项目网关会话模型与前端交互设计参考了其设计
+- **[ReSpeak/tsclientlib](https://github.com/ReSpeak/tsclientlib)**（Rust）—— TS3 协议逆向分析的权威参考
+- **[EchoSixHIYA/WebSpeak-client-for-TeamSpeak](https://github.com/EchoSixHIYA/WebSpeak-client-for-TeamSpeak)**（AGPL-3.0）—— Web 语音客户端的另一实现参考
+- **[@honeybbq/teamspeak-client](https://www.npmjs.com/package/@honeybbq/teamspeak-client)**（MIT）—— 本项目使用的真实 TS3 客户端协议库
+
+---
+
+## ⚠️ 免责声明
+
+社区项目，与 TeamSpeak Systems GmbH 无关。TeamSpeak 商标归其权利人所有。使用本项目连接服务器时，请遵守服务器所有者制定的规则与当地法律法规。
