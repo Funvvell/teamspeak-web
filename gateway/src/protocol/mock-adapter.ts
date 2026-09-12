@@ -13,7 +13,8 @@ export function createMockAdapter(
   let clients: ClientInfo[] = []
   let selfId = 1
   let nickname = 'Guest'
-  let voiceHandlers = new Set<(f: VoiceFrame) => void>()
+  const voiceHandlers = new Set<(f: VoiceFrame) => void>()
+  const talkingTimers = new Set<ReturnType<typeof setTimeout>>()
   const whisperClients = new Set<number>()
   const whisperChannels = new Set<number>()
 
@@ -35,46 +36,93 @@ export function createMockAdapter(
       channels = [
         {
           id: 1,
-          name: 'Lobby',
+          name: '大厅',
           parentId: null,
-          maxClients: 32,
+          maxClients: 0,
           isDefault: true,
           order: 1,
           clients: [],
         },
         {
           id: 2,
-          name: 'Gaming',
+          name: '研发讨论',
           parentId: null,
-          maxClients: 16,
+          maxClients: 20,
           isDefault: false,
           order: 2,
           clients: [],
         },
         {
           id: 3,
-          name: 'Squad A',
-          parentId: 2,
-          maxClients: 8,
-          isDefault: false,
-          order: 1,
-          clients: [],
-        },
-        {
-          id: 4,
-          name: 'AFK',
+          name: '音乐房',
           parentId: null,
-          maxClients: 64,
+          maxClients: 10,
           isDefault: false,
           order: 3,
           clients: [],
         },
+        {
+          id: 4,
+          name: '开黑五连',
+          parentId: null,
+          maxClients: 8,
+          isDefault: false,
+          order: 4,
+          clients: [],
+        },
+        {
+          id: 5,
+          name: '游客接待',
+          parentId: null,
+          maxClients: 8,
+          isDefault: false,
+          order: 5,
+          clients: [],
+        },
+        {
+          id: 6,
+          name: 'AFK 挂机',
+          parentId: null,
+          maxClients: 0,
+          isDefault: false,
+          order: 6,
+          clients: [],
+        },
       ]
       selfId = 1
+      const C = (
+        id: number,
+        n: string,
+        channelId: number,
+        extra: Partial<ClientInfo> = {},
+      ): ClientInfo => ({
+        id,
+        nickname: n,
+        channelId,
+        isTalking: false,
+        isMuted: false,
+        country: 'CN',
+        latency: 30 + ((id * 13) % 70),
+        ...extra,
+      })
       clients = [
-        { id: selfId, nickname, channelId: 1, isTalking: false, isMuted: false },
-        { id: 2, nickname: 'Alice', channelId: 1, isTalking: true, isMuted: false, country: 'CN' },
-        { id: 3, nickname: 'Bob', channelId: 3, isTalking: false, isMuted: true, country: 'US' },
+        C(selfId, nickname, 1, { latency: 42 }),
+        C(2, '陈默', 1, { isInputMuted: true, latency: 68 }),
+        C(3, '小满', 1, { isOutputMuted: true, latency: 42 }),
+        C(4, '林知', 2, { latency: 58 }),
+        C(5, '阿哲', 2, { latency: 36 }),
+        C(6, '麦芽', 2, { latency: 91 }),
+        C(7, '大橘', 2, { isAway: true, latency: 73 }),
+        C(8, '回声', 2, { latency: 47 }),
+        C(9, 'Moon', 3, { latency: 64 }),
+        C(10, '云杉', 3, { latency: 51 }),
+        C(11, '小鹿', 3, { latency: 39 }),
+        C(12, '阿凯', 4, { latency: 44 }),
+        C(13, '闪电', 4, { latency: 82 }),
+        C(14, '馒头', 4, { latency: 55 }),
+        C(15, '铁牛', 4, { latency: 61 }),
+        C(16, '树懒', 6, { isAway: true, latency: 128 }),
+        C(17, '化石', 6, { isAway: true, latency: 156 }),
       ]
       emitTree()
       emit({
@@ -86,27 +134,38 @@ export function createMockAdapter(
       emit({
         type: 'event_log',
         event: 'join',
-        clientId: 2,
-        nickname: 'Alice',
+        clientId: 4,
+        nickname: '林知',
         channelId: 1,
         ts: Date.now(),
+      })
+      emit({
+        type: 'event_log',
+        event: 'move',
+        clientId: 3,
+        nickname: '小满',
+        channelId: 3,
+        detail: '音乐房',
+        ts: Date.now() - 60_000,
       })
       emit({
         type: 'message',
         from: 'Server',
         fromId: 0,
         target: 'server',
-        text: 'Welcome to TeamSpeak Web (mock mode).',
+        text: '欢迎回到 TeamSpeak Web（演示模式）。',
         ts: Date.now(),
       })
       return {
-        name: 'Mock TS3 Server',
-        welcome: 'Mock adapter — replace with real TS3 protocol.',
+        name: '主服务器',
+        welcome: '团队日常语音协作频道。发言前请确认麦克风状态；推荐使用声控（VOX）模式，需要专注时可闭听。',
         selfId,
       }
     },
 
     async disconnect() {
+      for (const t of talkingTimers) clearTimeout(t)
+      talkingTimers.clear()
       channels = []
       clients = []
     },
@@ -155,11 +214,11 @@ export function createMockAdapter(
         whisper,
       })
       if (target === 'channel') {
-        const other = clients.find((c) => c.nickname === 'Alice')
+        const other = clients.find((c) => c.id === 2)
         if (other) {
           emit({
             type: 'message',
-            from: 'Alice',
+            from: other.nickname,
             fromId: other.id,
             target: 'channel',
             text: `echo: ${text}`,
@@ -197,14 +256,16 @@ export function createMockAdapter(
       // Echo back so browser playback path can be exercised in mock mode
       const frame: VoiceFrame = { clientId: 2, codec, data }
       for (const h of voiceHandlers) h(frame)
-      const alice = clients.find((c) => c.nickname === 'Alice')
-      if (alice) {
-        alice.isTalking = true
+      const peer = clients.find((c) => c.id === 2)
+      if (peer) {
+        peer.isTalking = true
         emitTree()
-        setTimeout(() => {
-          alice.isTalking = false
+        const timer = setTimeout(() => {
+          talkingTimers.delete(timer)
+          peer.isTalking = false
           emitTree()
         }, 300)
+        talkingTimers.add(timer)
       }
     },
 

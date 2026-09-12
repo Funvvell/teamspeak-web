@@ -16,7 +16,7 @@ export interface VoxSettings {
 }
 
 const LS_VOX = 'tsweb:vox'
-const DEFAULT_VOX: VoxSettings = { mode: 'open', threshold: 0.08, pttKey: 'Space' }
+const DEFAULT_VOX: VoxSettings = { mode: 'vox', threshold: 0.18, pttKey: 'Space' }
 /** Keep sending ~250ms after level drops (hang time) */
 const VOX_HANG_MS = 250
 
@@ -90,6 +90,7 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
   const pttHeldRef = useRef(false)
   const lastTalkMs = useRef(0)
   const levelRef = useRef(0)
+  const gateOpenRef = useRef(false)
 
   const pushIncoming = useCallback((opus: Uint8Array, clientId = 0) => {
     if (!pipelineRef.current) {
@@ -192,6 +193,8 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
       analyser.fftSize = 512
       source.connect(analyser)
       const data = new Uint8Array(analyser.frequencyBinCount)
+      let lastPush = 0
+      let lastLevel = 0
       const tick = () => {
         analyser.getByteTimeDomainData(data)
         let sum = 0
@@ -203,11 +206,22 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
         const level = Math.min(1, rms * 4)
         levelRef.current = level
         const open = shouldSend()
-        setState((s) =>
-          s.level === level && s.gateOpen === open
-            ? s
-            : { ...s, level, gateOpen: open },
-        )
+        const now = performance.now()
+        const gateChanged = open !== gateOpenRef.current
+        // Throttle meter repaints (~20fps) and only push visible changes,
+        // so the level bar doesn't jitter/flicker at 60fps
+        const timeDue = now - lastPush >= 50
+        const levelChanged = Math.abs(level - lastLevel) >= 0.02
+        if (gateChanged || (timeDue && levelChanged) || (timeDue && open)) {
+          lastPush = now
+          lastLevel = level
+          gateOpenRef.current = open
+          setState((s) =>
+            s.level === level && s.gateOpen === open
+              ? s
+              : { ...s, level, gateOpen: open },
+          )
+        }
         rafRef.current = requestAnimationFrame(tick)
       }
       rafRef.current = requestAnimationFrame(tick)
@@ -322,6 +336,7 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
       pipelineRef.current?.close()
       pipelineRef.current = null
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 启动引导仅执行一次；requestMic/refreshDevices 依赖均稳定（ref/稳定 setState）
   }, [])
 
   return {

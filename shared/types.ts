@@ -21,6 +21,8 @@ export interface ClientInfo {
   isOutputMuted?: boolean
   /** ISO country code when server provides it */
   country?: string
+  /** Round-trip latency in ms when the server provides it */
+  latency?: number
 }
 
 export type ConnectionState =

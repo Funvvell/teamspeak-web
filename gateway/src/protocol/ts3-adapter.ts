@@ -97,11 +97,10 @@ export function createTs3Adapter(
   let selfId = 0
   let selfChannelId = 0
   let nickname = 'Guest'
-  let talkingTimers = new Map<number, ReturnType<typeof setTimeout>>()
-  let voiceHandlers = new Set<(f: VoiceFrame) => void>()
+  const talkingTimers = new Map<number, ReturnType<typeof setTimeout>>()
+  const voiceHandlers = new Set<(f: VoiceFrame) => void>()
   const whisperClients = new Set<number>()
   const whisperChannels = new Set<number>()
-  let nicknameForWhisper = 'Guest'
 
   function rebuildTree(): ChannelNode[] {
     return channels.map((ch) => ({
@@ -504,6 +503,7 @@ export function createTs3Adapter(
               `2) 服务器是否在线且允许从本机访问；` +
               `3) 防火墙/安全组是否放行 UDP；` +
               `4) 是否需要服务器密码。`,
+            { cause: err },
           )
         }
         throw err

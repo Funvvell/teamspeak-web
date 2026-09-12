@@ -7,7 +7,7 @@ function oneConnect(label, delayMs = 0) {
       const t0 = Date.now()
       const timer = setTimeout(() => {
         console.log(label, 'TIMEOUT 50s')
-        try { ws.close() } catch {}
+        try { ws.close() } catch { /* ignore */ }
         resolve({ label, ok: false, ms: Date.now() - t0 })
       }, 50000)
       ws.on('open', () => {
@@ -24,7 +24,7 @@ function oneConnect(label, delayMs = 0) {
           console.log(label, msg.state, msg.message || '', `+${Date.now() - t0}ms`)
           if (msg.state === 'connected' || msg.state === 'error' || msg.state === 'disconnected') {
             clearTimeout(timer)
-            try { ws.close() } catch {}
+            try { ws.close() } catch { /* ignore */ }
             resolve({ label, ok: msg.state === 'connected', ms: Date.now() - t0, msg: msg.message })
           }
         }

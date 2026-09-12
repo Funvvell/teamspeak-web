@@ -26,6 +26,10 @@ const DEFAULT_HOST = process.env.DEFAULT_HOST || ''
 const DEFAULT_PORT = process.env.DEFAULT_PORT || '9987'
 const DEFAULT_NICKNAME = process.env.DEFAULT_NICKNAME || ''
 const STARTED_AT = Date.now()
+// WS 帧载荷上限（语音帧约几 KB，1 MiB 足够；防止恶意超长帧耗尽内存）
+const MAX_PAYLOAD = Number(process.env.MAX_PAYLOAD || 1024 * 1024)
+// 并发 WS 连接上限（每连接一个 TS3 会话，防资源耗尽）
+const MAX_CONNECTIONS = Number(process.env.MAX_CONNECTIONS || 64)
 
 const createAdapter: AdapterFactory =
   PROTOCOL === 'mock' ? createMockAdapter : createTs3Adapter
@@ -92,7 +96,8 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) {
   }
 
   let filePath = path.join(DIST, pathname === '/' ? 'index.html' : pathname)
-  if (!filePath.startsWith(DIST)) {
+  // Reject any path escaping dist/ — compare on path-segment boundary, not prefix
+  if (filePath !== DIST && !filePath.startsWith(DIST + path.sep)) {
     res.writeHead(403).end('Forbidden')
     return
   }
@@ -112,11 +117,16 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) {
 }
 
 const server = http.createServer(serveStatic)
-const wss = new WebSocketServer({ noServer: true })
+const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD })
 
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
   if (url.pathname !== '/ws') {
+    socket.destroy()
+    return
+  }
+  if (wss.clients.size >= MAX_CONNECTIONS) {
+    socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n')
     socket.destroy()
     return
   }

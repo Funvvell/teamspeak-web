@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   DEFAULT_VOICE_PORT,
   type ChannelNode,
   type ClientInfo,
   type ConnectionState,
   type GatewayToClient,
-  type WhisperTarget,
 } from '../shared/types'
 import { createGatewayClient, type WsStatus } from './lib/gateway-client'
 import { useMicrophone } from './lib/mic'
@@ -16,9 +15,28 @@ import {
   getStoredSinkId,
   playNotify,
   setSoundsEnabled,
-  supportsSetSinkId,
 } from './lib/notify'
 import { getGatewayToken, setGatewayToken } from './lib/gateway-client'
+import {
+  LS_DESKTOP,
+  LS_FAV,
+  LS_RNN,
+  LOG_ICON,
+  desktopNotify,
+  formatTime,
+  loadCollapsed,
+  loadRecent,
+  loadVolumes,
+  parseHostPort,
+  saveCollapsed,
+  saveRecent,
+  saveVolumes,
+  type LogItem,
+  type RecentServer,
+} from './lib/utils'
+import { BellIcon, GlobeIcon, HeadphoneIcon, MicIcon, PersonIcon, WaveBars } from './components/icons'
+import { Segmented, SettingRow, Switch } from './components/controls'
+import { ChannelListView } from './components/ChannelListView'
 
 interface ChatMsg {
   from: string
@@ -49,6 +67,10 @@ interface ConnectionTab {
   chatTarget: 'channel' | 'server' | 'pm'
   pmTarget: number | null
   client: ReturnType<typeof createGatewayClient> | null
+  /** unread counters */
+  unread: number
+  unreadMention: boolean
+  eventsUnread: number
   /** auto-reconnect bookkeeping */
   wasConnected: boolean
   reconnectAttempts: number
@@ -56,194 +78,6 @@ interface ConnectionTab {
   prevClientIds: Set<number>
 }
 
-const LS_FAV = 'tsweb:favorites'
-const LS_VOL = 'tsweb:volumes'
-const LS_COLLAPSED = 'tsweb:collapsed'
-
-const COUNTRY_FLAG: Record<string, string> = {
-  CN: '🇨🇳',
-  US: '🇺🇸',
-  JP: '🇯🇵',
-  KR: '🇰🇷',
-  DE: '🇩🇪',
-  GB: '🇬🇧',
-  FR: '🇫🇷',
-  TW: '🇹🇼',
-  HK: '🇭🇰',
-  SG: '🇸🇬',
-  RU: '🇷🇺',
-  AU: '🇦🇺',
-  CA: '🇨🇦',
-  BR: '🇧🇷',
-}
-
-function countryFlag(code?: string) {
-  if (!code) return null
-  return COUNTRY_FLAG[code.toUpperCase()] || null
-}
-
-interface LogItem {
-  event: 'join' | 'leave' | 'move' | 'connect' | 'disconnect' | 'poke'
-  clientId?: number
-  nickname?: string
-  channelId?: number
-  detail?: string
-  ts: number
-}
-
-const LOG_ICON: Record<LogItem['event'], string> = {
-  join: '→',
-  leave: '←',
-  move: '⇢',
-  connect: '⚡',
-  disconnect: '⛔',
-  poke: '👋',
-}
-
-function loadCollapsed(): Set<number> {
-  try {
-    const arr = JSON.parse(localStorage.getItem(LS_COLLAPSED) || '[]')
-    return new Set(Array.isArray(arr) ? arr.map(Number) : [])
-  } catch {
-    return new Set()
-  }
-}
-
-function saveCollapsed(set: Set<number>) {
-  localStorage.setItem(LS_COLLAPSED, JSON.stringify([...set]))
-}
-
-function formatTime(ts: number) {
-  return new Date(ts).toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function loadVolumes(host: string): Record<string, number> {
-  try {
-    const all = JSON.parse(localStorage.getItem(LS_VOL) || '{}')
-    return all[host] || {}
-  } catch {
-    return {}
-  }
-}
-
-function saveVolumes(host: string, v: Record<string, number>) {
-  try {
-    const all = JSON.parse(localStorage.getItem(LS_VOL) || '{}')
-    all[host] = v
-    localStorage.setItem(LS_VOL, JSON.stringify(all))
-  } catch {
-    /* ignore */
-  }
-}
-
-function ChannelListView({
-  channels,
-  selfId,
-  activeChannelId,
-  onJoin,
-  onClientMenu,
-  collapsed,
-  onToggleCollapse,
-}: {
-  channels: ChannelNode[]
-  selfId: number | null
-  activeChannelId: number | null
-  onJoin: (id: number) => void
-  onClientMenu: (client: ClientInfo, e: React.MouseEvent) => void
-  collapsed: Set<number>
-  onToggleCollapse: (id: number) => void
-}) {
-  if (!channels.length) {
-    return <div className="empty">连接服务器后显示频道树</div>
-  }
-
-  const byParent = new Map<number | null, ChannelNode[]>()
-  for (const ch of channels) {
-    const list = byParent.get(ch.parentId) ?? []
-    list.push(ch)
-    byParent.set(ch.parentId, list)
-  }
-
-  function render(parentId: number | null, depth = 0): ReactNode {
-    const list = (byParent.get(parentId) ?? []).slice().sort((a, b) => {
-      const ao = a.order ?? a.id
-      const bo = b.order ?? b.id
-      if (ao !== bo) return ao - bo
-      return a.name.localeCompare(b.name)
-    })
-    return list.map((ch) => {
-      const isOpen = !collapsed.has(ch.id)
-      const hasKids = (byParent.get(ch.id) ?? []).length > 0
-      return (
-        <li key={ch.id} style={{ marginLeft: depth ? depth * 10 : 0 }}>
-          <div className={`channel${activeChannelId === ch.id ? ' active' : ''}`}>
-            <button type="button" className="channel-head" onClick={() => onJoin(ch.id)}>
-              <span className="channel-name">
-                {hasKids ? (
-                  <span
-                    className="channel-icon collapse-btn"
-                    title={isOpen ? '折叠' : '展开'}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onToggleCollapse(ch.id)
-                    }}
-                  >
-                    {isOpen ? '▾' : '▸'}
-                  </span>
-                ) : (
-                  <span className="channel-icon">{ch.isDefault ? '⌂' : '#'}</span>
-                )}
-                {hasKids && ch.isDefault && (
-                  <span className="channel-icon">⌂</span>
-                )}
-                {ch.name}
-              </span>
-              <span className="channel-meta">
-                {ch.clients.length}/{ch.maxClients === 0 ? '∞' : ch.maxClients}
-              </span>
-            </button>
-            {ch.clients.length > 0 && (
-              <div className="clients">
-                {ch.clients.map((c) => (
-                  <div
-                    key={c.id}
-                    className={`client${c.id === selfId ? ' me' : ''}`}
-                    onContextMenu={(e) => {
-                      e.preventDefault()
-                      onClientMenu(c, e)
-                    }}
-                  >
-                    <span className={`dot${c.isTalking ? ' talking' : ''}`} />
-                    {c.isCommander && <span title="频道指挥官">★</span>}
-                    {c.isAway && <span title="离开">🌙</span>}
-                    {c.isInputMuted && <span title="输入已闭麦">🎤</span>}
-                    {c.isOutputMuted && <span title="输出已闭麦">🔇</span>}
-                    {countryFlag(c.country) && (
-                      <span title={c.country}>{countryFlag(c.country)}</span>
-                    )}
-                    <span>{c.nickname}</span>
-                    {c.id === selfId && <span className="channel-meta">（我）</span>}
-                    {c.isMuted && !c.isInputMuted && (
-                      <span className="channel-meta" title="已静音">
-                        🔇
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          {isOpen && <ul className="tree">{render(ch.id, depth + 1)}</ul>}
-        </li>
-      )
-    })
-  }
-
-  return <ul className="tree">{render(null)}</ul>
-}
 
 function emptyTab(partial?: Partial<ConnectionTab>): ConnectionTab {
   return {
@@ -266,6 +100,9 @@ function emptyTab(partial?: Partial<ConnectionTab>): ConnectionTab {
     chatTarget: 'channel',
     pmTarget: null,
     client: null,
+    unread: 0,
+    unreadMention: false,
+    eventsUnread: 0,
     wasConnected: false,
     reconnectAttempts: 0,
     manualDisconnect: false,
@@ -274,6 +111,10 @@ function emptyTab(partial?: Partial<ConnectionTab>): ConnectionTab {
   }
 }
 
+type AppView = 'login' | 'main' | 'settings'
+type SettingsNav = 'account' | 'audio' | 'activation' | 'notify' | 'theme' | 'network'
+
+// 模块级小组件：避免在 App 内部定义导致每次渲染重挂载（输入框失焦）
 export default function App() {
   const [tabs, setTabs] = useState<ConnectionTab[]>(() => {
     try {
@@ -293,6 +134,8 @@ export default function App() {
     return [emptyTab()]
   })
   const [activeId, setActiveId] = useState(() => '')
+  const [view, setView] = useState<AppView>('login')
+  const [settingsNav, setSettingsNav] = useState<SettingsNav>('audio')
   const [draft, setDraft] = useState('')
   const [muted, setMuted] = useState(false)
   const [menu, setMenu] = useState<{
@@ -300,15 +143,57 @@ export default function App() {
     y: number
     client: ClientInfo
   } | null>(null)
+  const [menuSub, setMenuSub] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
   const [volumes, setVolumes] = useState<Record<string, number>>({})
   const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([])
   const [sinkId, setSinkId] = useState(() => getStoredSinkId())
   const [soundsOn, setSoundsOn] = useState(() => getSoundsEnabled())
-  const [canSink, setCanSink] = useState(() => supportsSetSinkId())
   const [collapsed, setCollapsed] = useState(() => loadCollapsed())
+  const [treeCollapsed, setTreeCollapsed] = useState(false)
+  const [usersCollapsed, setUsersCollapsed] = useState(false)
   const [sideTab, setSideTab] = useState<'chat' | 'events'>('chat')
   const [gatewayToken, setGatewayTokenState] = useState(() => getGatewayToken())
   const [authRequired, setAuthRequired] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<{
+    host?: string
+    nickname?: string
+  }>({})
+  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null)
+  const [deafened, setDeafened] = useState(false)
+  const [httpsDismissed, setHttpsDismissed] = useState(
+    () => sessionStorage.getItem('tsweb:https-dismissed') === '1',
+  )
+  const [filterText, setFilterText] = useState('')
+  const filterInputRef = useRef<HTMLInputElement>(null)
+  const [toasts, setToasts] = useState<
+    { id: number; kind: 'success' | 'info' | 'warn' | 'err'; text: string }[]
+  >([])
+  const toastIdRef = useRef(0)
+  const chatLogRef = useRef<HTMLDivElement>(null)
+  const chatPinned = useRef(true)
+  const prevMsgRef = useRef({ tab: '', count: 0 })
+  const [newMsgCount, setNewMsgCount] = useState(0)
+  const treeBodyRef = useRef<HTMLDivElement>(null)
+  const infoCardRef = useRef<HTMLDivElement>(null)
+  const [myChanDir, setMyChanDir] = useState<'up' | 'down' | null>(null)
+  const deafenPrevVol = useRef(1)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+  const insecureContext =
+    typeof window !== 'undefined' && !window.isSecureContext
+
+  // 登录页 / 设置页状态
+  const [addressInput, setAddressInput] = useState('')
+  const [rememberServer, setRememberServer] = useState(true)
+  const [recent, setRecent] = useState<RecentServer[]>(() => loadRecent())
+  const [rnnoiseOn, setRnnoiseOn] = useState(
+    () => localStorage.getItem(LS_RNN) !== '0',
+  )
+  const [desktopNotifyOn, setDesktopNotifyOn] = useState(
+    () => localStorage.getItem(LS_DESKTOP) !== '0',
+  )
+  const [helpOpen, setHelpOpen] = useState(false)
+  const desktopNotifyOnRef = useRef(desktopNotifyOn)
 
   const mic = useMicrophone((opus) => {
     const tab = tabsRef.current.find((t) => t.id === activeIdRef.current)
@@ -316,19 +201,32 @@ export default function App() {
   })
 
   const tabsRef = useRef(tabs)
-  tabsRef.current = tabs
   const activeIdRef = useRef(activeId)
-  activeIdRef.current = activeId
+  const sideTabRef = useRef(sideTab)
   const micRef = useRef(mic)
-  micRef.current = mic
+  const toggleMuteRef = useRef(toggleMute)
+  const toggleDeafenRef = useRef(toggleDeafen)
   const reconnectTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
   )
-  const connectTabRef = useRef<(id: string, opts?: { auto?: boolean }) => void>(
-    () => {},
-  )
+  const connectTabRef = useRef<
+    (
+      id: string,
+      opts?: { auto?: boolean },
+      overrides?: { host?: string; port?: string; nickname?: string },
+    ) => void
+  >(() => {})
 
   const active = tabs.find((t) => t.id === activeId) || tabs[0]
+
+  // 登录页地址输入框与 active 配置同步（config 启动填充后自动带上）
+  useEffect(() => {
+    if (!active?.host) return
+    setAddressInput((cur) => {
+      if (cur && cur !== `${active.host}:${active.port}` && !cur.includes(active.host)) return cur
+      return cur ? cur : `${active.host}:${active.port}`
+    })
+  }, [active?.host, active?.port])
 
   useEffect(() => {
     if (!activeId && tabs[0]) setActiveId(tabs[0].id)
@@ -343,7 +241,6 @@ export default function App() {
       ?.enumerateDevices?.()
       .then((list) => {
         setOutputDevices(list.filter((d) => d.kind === 'audiooutput'))
-        setCanSink(supportsSetSinkId())
       })
       .catch(() => {})
   }, [])
@@ -376,15 +273,28 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    const timers = reconnectTimers.current
     return () => {
-      for (const t of reconnectTimers.current.values()) clearTimeout(t)
-      reconnectTimers.current.clear()
+      for (const t of timers.values()) clearTimeout(t)
+      timers.clear()
     }
   }, [])
 
   const patchTab = useCallback((id: string, patch: Partial<ConnectionTab>) => {
     setTabs((list) => list.map((t) => (t.id === id ? { ...t, ...patch } : t)))
   }, [])
+
+  const pushToast = useCallback(
+    (kind: 'success' | 'info' | 'warn' | 'err', text: string) => {
+      const id = ++toastIdRef.current
+      setToasts((list) => [...list.slice(-2), { id, kind, text }])
+      setTimeout(
+        () => setToasts((list) => list.filter((t) => t.id !== id)),
+        4000,
+      )
+    },
+    [],
+  )
 
   const scheduleReconnect = useCallback(
     (tabId: string) => {
@@ -403,7 +313,6 @@ export default function App() {
       }, delay)
       reconnectTimers.current.set(tabId, timer)
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [patchTab],
   )
 
@@ -422,10 +331,23 @@ export default function App() {
               reconnectAttempts: 0,
               manualDisconnect: false,
             })
-            if (isActive()) playNotify('connect')
+            if (isActive()) {
+              playNotify('connect')
+              pushToast('success', '已连接')
+              setSelectedChannelId(null)
+              setView('main')
+            }
           }
           if (msg.state === 'disconnected' || msg.state === 'error') {
-            if (isActive()) playNotify('disconnect')
+            if (isActive()) {
+              playNotify('disconnect')
+              const t = tabsRef.current.find((x) => x.id === tabId)
+              if (msg.state === 'error') {
+                pushToast('err', msg.message || '连接错误')
+              } else if (t?.wasConnected && !t.manualDisconnect) {
+                pushToast('warn', '连接断开，正在自动重连…')
+              }
+            }
             scheduleReconnect(tabId)
           }
           break
@@ -458,12 +380,19 @@ export default function App() {
           break
         }
         case 'message': {
+          const mention =
+            /\*poke\*/i.test(msg.text) || msg.target.startsWith('client:')
+          const active0 = isActive()
           setTabs((list) =>
             list.map((t) =>
               t.id === tabId
                 ? {
                     ...t,
                     messages: [...t.messages.slice(-200), { ...msg }],
+                    unread: active0 ? t.unread : t.unread + 1,
+                    unreadMention: active0
+                      ? t.unreadMention
+                      : t.unreadMention || mention,
                   }
                 : t,
             ),
@@ -471,6 +400,21 @@ export default function App() {
           if (isActive()) {
             if (/\*poke\*/i.test(msg.text)) playNotify('poke')
             else if (msg.target.startsWith('client:')) playNotify('pm')
+          }
+          if (mention) {
+            if (
+              'Notification' in window &&
+              Notification.permission === 'default'
+            ) {
+              void Notification.requestPermission()
+            }
+            desktopNotify(
+              msg.target.startsWith('client:')
+                ? `私聊 · ${msg.from}`
+                : `Poke · ${msg.from}`,
+              msg.text,
+              desktopNotifyOnRef.current,
+            )
           }
           break
         }
@@ -481,6 +425,10 @@ export default function App() {
                 ? {
                     ...t,
                     logs: [...t.logs.slice(-199), { ...msg } as LogItem],
+                    eventsUnread:
+                      isActive() && sideTabRef.current !== 'events'
+                        ? t.eventsUnread + 1
+                        : t.eventsUnread,
                   }
                 : t,
             ),
@@ -488,10 +436,11 @@ export default function App() {
           break
         case 'error':
           patchTab(tabId, { lastError: `${msg.code}: ${msg.message}` })
+          if (isActive()) pushToast('err', `${msg.code}: ${msg.message}`)
           break
       }
     },
-    [patchTab, scheduleReconnect],
+    [patchTab, scheduleReconnect, pushToast],
   )
 
   const onAudioFrameFor = useCallback(
@@ -505,12 +454,25 @@ export default function App() {
     [],
   )
 
-  const connectTab = (id: string, opts?: { auto?: boolean }) => {
+  const connectTab = (
+    id: string,
+    opts?: { auto?: boolean },
+    overrides?: { host?: string; port?: string; nickname?: string },
+  ) => {
     const tab = tabsRef.current.find((t) => t.id === id)
-    if (!tab || !tab.host.trim() || !tab.nickname.trim()) {
-      if (!opts?.auto) patchTab(id, { lastError: '请填写服务器地址和昵称' })
+    const host = (overrides?.host ?? tab?.host ?? '').trim()
+    const nick = (overrides?.nickname ?? tab?.nickname ?? '').trim()
+    const port = overrides?.port ?? tab?.port ?? String(DEFAULT_VOICE_PORT)
+    if (!tab || !host || !nick) {
+      if (!opts?.auto) {
+        setFieldErrors({
+          host: !host ? '请填写服务器地址' : undefined,
+          nickname: !nick ? '请填写昵称' : undefined,
+        })
+      }
       return
     }
+    setFieldErrors({})
     // Avoid connect storms (manual spam or auto-reconnect while handshake running)
     if (tab.connState === 'connecting') return
     if (opts?.auto && tab.connState === 'connected') return
@@ -536,26 +498,35 @@ export default function App() {
       whisperClients: [],
       whisperChannels: [],
     })
-    localStorage.setItem(
-      LS_FAV,
-      JSON.stringify({
-        host: tab.host.trim(),
-        port: tab.port,
-        nickname: tab.nickname.trim(),
-      }),
-    )
+    if (rememberServer) {
+      localStorage.setItem(
+        LS_FAV,
+        JSON.stringify({
+          host: host,
+          port,
+          nickname: nick,
+        }),
+      )
+    }
+    setRecent((prev) => {
+      const next = [
+        { host, port, label: host, ts: Date.now() },
+        ...prev.filter((r) => !(r.host === host && r.port === port)),
+      ].slice(0, 5)
+      saveRecent(next)
+      return next
+    })
     // WS open is async — send after short delay or queue (client queues)
     setTimeout(() => {
       client.send({
         type: 'connect',
-        host: tab.host.trim(),
-        port: Number(tab.port) || DEFAULT_VOICE_PORT,
-        nickname: tab.nickname.trim(),
+        host,
+        port: Number(port) || DEFAULT_VOICE_PORT,
+        nickname: nick,
         password: tab.password || undefined,
       })
     }, 50)
   }
-  connectTabRef.current = connectTab
 
   const disconnectTab = (id: string) => {
     const timer = reconnectTimers.current.get(id)
@@ -566,6 +537,20 @@ export default function App() {
     patchTab(id, { manualDisconnect: true, reconnectAttempts: 0 })
     const tab = tabsRef.current.find((t) => t.id === id)
     tab?.client?.send({ type: 'disconnect' })
+  }
+
+  const cancelReconnect = (id: string) => {
+    const timer = reconnectTimers.current.get(id)
+    if (timer) {
+      clearTimeout(timer)
+      reconnectTimers.current.delete(id)
+    }
+    patchTab(id, { manualDisconnect: true, reconnectAttempts: 0 })
+  }
+
+  const retryReconnect = (id: string) => {
+    patchTab(id, { reconnectAttempts: 0, manualDisconnect: false })
+    connectTab(id)
   }
 
   const closeTab = (id: string) => {
@@ -589,6 +574,7 @@ export default function App() {
     const t = emptyTab()
     setTabs((list) => [...list, t])
     setActiveId(t.id)
+    setView('login')
   }
 
   const activeChannelId = useMemo(() => {
@@ -596,6 +582,29 @@ export default function App() {
     const me = active.clients.find((c) => c.id === active.selfId)
     return me?.channelId ?? null
   }, [active])
+
+  // Track whether my channel row is scrolled out of view
+  const updateMyChanVisibility = useCallback(() => {
+    const el = treeBodyRef.current
+    if (!el || activeChannelId == null) {
+      setMyChanDir(null)
+      return
+    }
+    const row = el.querySelector(`[data-channel-id="${activeChannelId}"]`)
+    if (!row) {
+      setMyChanDir(null)
+      return
+    }
+    const r = row.getBoundingClientRect()
+    const c = el.getBoundingClientRect()
+    if (r.bottom < c.top) setMyChanDir('up')
+    else if (r.top > c.bottom) setMyChanDir('down')
+    else setMyChanDir(null)
+  }, [activeChannelId])
+
+  useEffect(() => {
+    updateMyChanVisibility()
+  }, [updateMyChanVisibility, active?.channels, filterText])
 
   const whisperActive =
     !!active &&
@@ -624,9 +633,39 @@ export default function App() {
   }
 
   function openMenu(client: ClientInfo, e: React.MouseEvent) {
-    const x = Math.min(e.clientX, window.innerWidth - 200)
-    const y = Math.min(e.clientY, window.innerHeight - 220)
+    const x = Math.min(e.clientX, window.innerWidth - 220)
+    const y = Math.min(e.clientY, window.innerHeight - 260)
     setMenu({ x, y, client })
+  }
+
+  // Focus first menu item on open; reset submenu
+  useEffect(() => {
+    if (menu) {
+      setMenuSub(false)
+      setTimeout(
+        () => menuRef.current?.querySelector('button')?.focus(),
+        0,
+      )
+    }
+  }, [menu])
+
+  function onMenuKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Escape') {
+      setMenu(null)
+      return
+    }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    e.preventDefault()
+    const items = Array.from(
+      menuRef.current?.querySelectorAll('button') ?? [],
+    ) as HTMLButtonElement[]
+    if (!items.length) return
+    const idx = items.indexOf(document.activeElement as HTMLButtonElement)
+    const next =
+      e.key === 'ArrowDown'
+        ? items[(idx + 1 + items.length) % items.length]
+        : items[(idx - 1 + items.length) % items.length]
+    next?.focus()
   }
 
   useEffect(() => {
@@ -634,6 +673,86 @@ export default function App() {
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [])
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const isTypingTarget = (el: EventTarget | null) => {
+      const t = el as HTMLElement | null
+      if (!t) return false
+      const tag = t.tagName
+      return (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        t.isContentEditable
+      )
+    }
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey
+      const key = e.key.toLowerCase()
+      if (mod && key === 'k') {
+        e.preventDefault()
+        setView((v) => (v === 'settings' ? v : v))
+        filterInputRef.current?.focus()
+        return
+      }
+      if (mod && e.key >= '1' && e.key <= '9') {
+        e.preventDefault()
+        const t = tabsRef.current[Number(e.key) - 1]
+        if (t) {
+          setActiveId(t.id)
+          patchTab(t.id, { unread: 0, unreadMention: false })
+        }
+        return
+      }
+      if (mod && key === 'w') {
+        e.preventDefault()
+        const t = tabsRef.current.find((x) => x.id === activeIdRef.current)
+        if (!t) return
+        if (
+          t.connState === 'connected' &&
+          !window.confirm('仍在连接中，确定关闭该标签？')
+        )
+          return
+        closeTab(t.id)
+        return
+      }
+      if (mod && key === 'm') {
+        e.preventDefault()
+        if (e.shiftKey) toggleDeafenRef.current()
+        else toggleMuteRef.current()
+        return
+      }
+      if (e.key === '?' && !isTypingTarget(e.target)) {
+        setShowShortcuts((s) => !s)
+        return
+      }
+      if (e.key === 'Escape') setShowShortcuts(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [patchTab])
+
+  // Chat scroll pinning: follow only when pinned to bottom
+  const activeMsgCount = active?.messages.length ?? 0
+  useEffect(() => {
+    const el = chatLogRef.current
+    if (!el || !active) return
+    const prev = prevMsgRef.current
+    const count = active.messages.length
+    if (prev.tab !== active.id) {
+      chatPinned.current = true
+      setNewMsgCount(0)
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight
+      })
+    } else if (count > prev.count) {
+      if (chatPinned.current) el.scrollTop = el.scrollHeight
+      else setNewMsgCount((n) => n + (count - prev.count))
+    }
+    prevMsgRef.current = { tab: active.id, count }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.id, activeMsgCount])
 
   function setClientVol(nick: string, id: number, v: number) {
     if (!active) return
@@ -643,156 +762,1256 @@ export default function App() {
     saveVolumes(active.host, next)
   }
 
-  const connected = active?.connState === 'connected'
+  function toggleMute() {
+    if (deafened) return
+    const n = !muted
+    setMuted(n)
+    mic.setMuted(n)
+  }
 
-  return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          <div className="brand-mark">TS</div>
-          <span>TeamSpeak Web</span>
+  function toggleDeafen() {
+    const next = !deafened
+    setDeafened(next)
+    if (next) {
+      deafenPrevVol.current = mic.state.outputVolume
+      setMuted(true)
+      mic.setMuted(true)
+      mic.setOutputVolume(0)
+    } else {
+      setMuted(false)
+      mic.setMuted(false)
+      mic.setOutputVolume(deafenPrevVol.current)
+    }
+  }
+
+
+  const connected = active?.connState === 'connected'
+  const rawUplink = mic.state.micOn && !muted && mic.state.gateOpen
+  /**
+   * Hysteresis: switch ON instantly, but only switch OFF after a short dwell,
+   * so the bar doesn't strobe when the VOX gate flaps around the threshold.
+   */
+  const [uplink, setUplink] = useState(false)
+  useEffect(() => {
+    if (rawUplink) {
+      setUplink(true)
+      return
+    }
+    const t = setTimeout(() => setUplink(false), 400)
+    return () => clearTimeout(t)
+  }, [rawUplink])
+
+  // Smoothed meter value — 20fps raw level + low-pass filter = no jitter
+  const levelSmoothRef = useRef(0)
+  const meterLevel = levelSmoothRef.current
+
+  // 渲染后统一同步 ref（React 19 禁止在 render 期间写入 ref；语义与原 render 同步等价）
+  useEffect(() => {
+    desktopNotifyOnRef.current = desktopNotifyOn
+    tabsRef.current = tabs
+    activeIdRef.current = activeId
+    sideTabRef.current = sideTab
+    micRef.current = mic
+    connectTabRef.current = connectTab
+    toggleMuteRef.current = toggleMute
+    toggleDeafenRef.current = toggleDeafen
+    levelSmoothRef.current =
+      levelSmoothRef.current * 0.72 + (muted ? 0 : mic.state.level) * 0.28
+  })
+
+  const speakers =
+    active?.clients.filter((c) => c.isTalking && c.id !== active.selfId) ?? []
+  const reconnecting =
+    !!active &&
+    active.connState === 'disconnected' &&
+    active.wasConnected &&
+    !active.manualDisconnect
+  const reconnectFailed = reconnecting && active.reconnectAttempts >= 5
+
+  // ---------- 派生值（设计稿视图） ----------
+
+  /** 上行速率估算（kbps，用于 UI 展示）*/
+  const talkKbps = Math.round(12 + meterLevel * 20)
+  const peerKbps = (id: number) => 12 + ((id * 7) % 16)
+
+  const lat = (c: ClientInfo) => (c.latency != null ? c.latency : '—')
+
+  const selfClient = active?.clients.find((c) => c.id === active.selfId) ?? null
+  const selfLatency = selfClient?.latency ?? null
+
+  const channelById = useMemo(() => {
+    const m = new Map<number, ChannelNode>()
+    for (const ch of active?.channels ?? []) m.set(ch.id, ch)
+    return m
+  }, [active?.channels])
+
+  const activeChannelNode = activeChannelId != null
+    ? channelById.get(activeChannelId) ?? null
+    : null
+
+  const channelPath = useMemo(() => {
+    const names: string[] = []
+    let cur = activeChannelNode
+    let guard = 0
+    while (cur && guard++ < 10) {
+      names.unshift(cur.name)
+      cur = cur.parentId != null ? channelById.get(cur.parentId) ?? null : null
+    }
+    return names
+  }, [activeChannelNode, channelById])
+
+  const channelName = activeChannelNode?.name ?? '语音频道'
+
+  const channelMembers = useMemo(() => {
+    if (!active || activeChannelId == null) return []
+    return active.clients.filter((c) => c.channelId === activeChannelId)
+  }, [active, activeChannelId])
+
+  const talkingCount = channelMembers.filter(
+    (c) => c.isTalking || (c.id === active?.selfId && uplink),
+  ).length
+
+  const focusMember = useMemo(() => {
+    const peerTalker = channelMembers.find(
+      (c) => c.isTalking && c.id !== active?.selfId,
+    )
+    if (peerTalker) return peerTalker
+    if (selfClient && (uplink || channelMembers.some((c) => c.id === selfClient.id)))
+      return selfClient
+    return channelMembers[0] ?? null
+  }, [channelMembers, selfClient, uplink, active?.selfId])
+
+  const userStateCls = (c: ClientInfo) => {
+    if (c.isTalking) return 'talking'
+    if (c.isInputMuted || c.isMuted) return 'muted'
+    if (c.isOutputMuted) return 'listen'
+    return 'idle'
+  }
+
+  function statusFor(c: ClientInfo): { text: string; kind: 'talking' | 'muted' | 'listen' | 'idle' } {    const isSelf = c.id === active?.selfId
+    if (isSelf) {
+      if (deafened) return { text: '已闭麦', kind: 'muted' }
+      if (muted) return { text: '已闭麦', kind: 'muted' }
+      if (!mic.state.micOn) return { text: '麦克风未开启', kind: 'idle' }
+      if (uplink) return { text: `正在说话·上行 ${talkKbps} kbps`, kind: 'talking' }
+      return { text: `在线 · ${lat(c)} ms`, kind: 'idle' }
+    }
+    if (c.isTalking) return { text: `正在说话·上行 ${peerKbps(c.id)} kbps`, kind: 'talking' }
+    if (c.isInputMuted) return { text: `已闭麦 · ${lat(c)} ms`, kind: 'muted' }
+    if (c.isOutputMuted) return { text: `仅收听 · ${lat(c)} ms`, kind: 'listen' }
+    return { text: `在线 · ${lat(c)} ms`, kind: 'idle' }
+  }
+
+  const micOk =
+    mic.state.permission === 'granted' && mic.state.micOn
+  const micDeviceName =
+    mic.state.devices.find((d) => d.deviceId === mic.state.selectedId)?.label ??
+    ''
+  const inputDb = mic.state.level > 0.001
+    ? Math.max(-60, Math.round(20 * Math.log10(mic.state.level)))
+    : -60
+  const voxPct = Math.round(mic.state.vox.threshold * 100)
+
+  const recentLogs = useMemo(() => {
+    const logs = active?.logs
+    if (!logs) return []
+    return [...logs].reverse().slice(0, 4)
+  }, [active?.logs])
+
+  function logText(l: LogItem) {
+    const who = l.nickname || `#${l.clientId ?? '?'}`
+    switch (l.event) {
+      case 'join': return `${who} 加入了频道`
+      case 'leave': return `${who} 离开了频道`
+      case 'move': {
+        const chName = l.detail || (l.channelId != null ? channelById.get(l.channelId)?.name : null)
+        return `${who} 移动到「${chName || '其他频道'}」`
+      }
+      case 'connect': return `${who} 连接成功${l.detail ? ` · ${l.detail}` : ''}`
+      case 'disconnect': return `${who} 断开连接`
+      case 'poke': return `${who} 收到了 Poke`
+    }
+  }
+
+  const channelDesc = `${channelName}：团队日常语音协作频道。发言前请确认麦克风状态；推荐使用声控（VOX）模式，需要专注时可闭听。`
+
+  const serverMemberCount = active?.clients.length ?? 0
+
+  // ---------- 登录页操作 ----------
+
+  const connectFromLogin = () => {
+    if (!active) return
+    const { host, port } = parseHostPort(addressInput)
+    const nick = active.nickname.trim()
+    if (!host || !nick) {
+      setFieldErrors({
+        host: !host ? '请填写服务器地址' : undefined,
+        nickname: !nick ? '请填写昵称' : undefined,
+      })
+      return
+    }
+    setFieldErrors({})
+    patchTab(active.id, { host, port })
+    connectTab(active.id, undefined, { host, port, nickname: nick })
+  }
+
+  const connectAsGuest = () => {
+    if (!active) return
+    const { host, port } = parseHostPort(addressInput)
+    if (!host) {
+      setFieldErrors({ host: '请填写服务器地址', nickname: undefined })
+      return
+    }
+    const nick =
+      active.nickname.trim() ||
+      `游客-${Math.floor(1000 + Math.random() * 9000)}`
+    patchTab(active.id, { nickname: nick })
+    setFieldErrors({})
+    connectTab(active.id, undefined, { host, port, nickname: nick })
+  }
+
+  const clearRecent = () => {
+    setRecent([])
+    saveRecent([])
+  }
+
+  const pickRecent = (r: RecentServer) => {
+    if (!active) return
+    patchTab(active.id, { host: r.host, port: r.port })
+    setAddressInput(`${r.host}:${r.port}`)
+    setFieldErrors({})
+  }
+
+  const inviteCopy = () => {
+    if (!active) return
+    const url = `ts3server://${active.host}?port=${active.port || DEFAULT_VOICE_PORT}`
+    void navigator.clipboard
+      .writeText(url)
+      .then(() => pushToast('success', '邀请链接已复制'))
+      .catch(() => pushToast('err', '复制失败，请手动复制服务器地址'))
+  }
+
+  const focusInfoCard = () => {
+    infoCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    infoCardRef.current?.classList.add('flash')
+    setTimeout(
+      () => infoCardRef.current?.classList.remove('flash'),
+      1200,
+    )
+  }
+
+  const resetSettings = () => {
+    mic.setVox({ mode: 'vox', threshold: 0.08, pttKey: 'Space' })
+    mic.setOutputVolume(1)
+    setSoundsOn(true)
+    setSoundsEnabled(true)
+    setRnnoiseOn(true)
+    setDesktopNotifyOn(true)
+    localStorage.setItem(LS_RNN, '1')
+    localStorage.setItem(LS_DESKTOP, '1')
+    setSinkId('')
+    applySinkId('')
+    void mic.setOutputDevice('')
+    pushToast('success', '已恢复默认设置')
+  }
+
+  const saveSettings = () => {
+    pushToast('success', '设置已保存 · 改动即时生效')
+  }
+
+  const leaveServer = () => {
+    if (active) disconnectTab(active.id)
+    setView('login')
+  }
+
+  const toggleDesktopNotify = () => {
+    setDesktopNotifyOn((v) => {
+      const next = !v
+      localStorage.setItem(LS_DESKTOP, next ? '1' : '0')
+      if (next && 'Notification' in window && Notification.permission === 'default') {
+        void Notification.requestPermission()
+      }
+      return next
+    })
+  }
+
+  const toggleRnnoise = () => {
+    setRnnoiseOn((v) => {
+      const next = !v
+      localStorage.setItem(LS_RNN, next ? '1' : '0')
+      return next
+    })
+  }
+
+  // ---------- 通用小组件（Switch/Segmented/SettingRow 见模块级定义） ----------
+
+  const renderActivationControls = () => (
+    <>
+      <SettingRow
+        label="发送方式"
+        right={<span className="setting-status">当前：{mic.state.vox.mode === 'open' ? '常开' : mic.state.vox.mode === 'vox' ? '声控 VOX' : '按键 PTT'}</span>}
+      >
+        <Segmented
+          value={mic.state.vox.mode}
+          options={[
+            { value: 'open', label: '常开' },
+            { value: 'vox', label: '声控 VOX' },
+            { value: 'ptt', label: '按键 PTT' },
+          ]}
+          onChange={(v) => mic.setVox({ mode: v as 'open' | 'vox' | 'ptt' })}
+        />
+      </SettingRow>
+      {mic.state.vox.mode === 'vox' && (
+        <SettingRow label="VOX 阈值" right={<span className="setting-status">{voxPct}%</span>}>
+          <input
+            type="range"
+            min={1}
+            max={60}
+            value={voxPct}
+            onChange={(e) => mic.setVox({ threshold: Number(e.target.value) / 100 })}
+          />
+        </SettingRow>
+      )}
+      {mic.state.vox.mode === 'ptt' && (
+        <SettingRow
+          label="按键说话快捷键"
+          right={<span className="setting-status">{mic.keyLabel(mic.state.vox.pttKey)}</span>}
+        >
+          <button
+            type="button"
+            className="key-capture"
+            onClick={() => {
+              const onKey = (e: KeyboardEvent) => {
+                e.preventDefault()
+                if (e.code !== 'Escape') mic.setVox({ pttKey: e.code })
+                window.removeEventListener('keydown', onKey, true)
+              }
+              window.addEventListener('keydown', onKey, true)
+            }}
+          >
+            {mic.keyLabel(mic.state.vox.pttKey)}
+            <span className="key-capture-hint">点击后按新键</span>
+          </button>
+        </SettingRow>
+      )}
+    </>
+  )
+
+  // ---------- 登录视图 ----------
+
+  const renderLogin = () => {
+    const connecting = active?.connState === 'connecting'
+    const lastFailed = !!active?.lastError && !connecting
+    const dnsLike =
+      lastFailed &&
+      /解析|dns|resolve|enotfound|not found/i.test(active?.lastError || '')
+    const hostError = fieldErrors.host
+    const nickError = fieldErrors.nickname
+
+    return (
+      <div className="login-page">
+        <div className="login-bg" aria-hidden="true">
+          <svg className="bg-wave" viewBox="0 0 1440 260" preserveAspectRatio="none">
+            <path d="M0 120 C 120 70 240 170 360 120 S 600 70 720 120 S 960 170 1080 120 S 1320 70 1440 120" fill="none" stroke="currentColor" strokeWidth="1.6" opacity="0.32"/>
+            <path d="M0 175 C 160 130 320 220 480 175 S 800 130 960 175 S 1280 220 1440 175" fill="none" stroke="currentColor" strokeWidth="1.2" opacity="0.2"/>
+            <path d="M0 205 C 140 175 280 235 420 205 S 700 175 840 205 S 1180 235 1320 205 S 1400 180 1440 205" fill="none" stroke="currentColor" strokeWidth="1" opacity="0.14"/>
+          </svg>
+          <svg className="bg-nodes" viewBox="0 0 900 560" fill="none">
+            <g className="node-server">
+              <circle cx="450" cy="270" r="34" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.6"/>
+              <rect x="436" y="252" width="28" height="5" rx="2.5" fill="currentColor" opacity="0.75"/>
+              <rect x="436" y="264" width="28" height="5" rx="2.5" fill="currentColor" opacity="0.45"/>
+              <rect x="436" y="276" width="28" height="5" rx="2.5" fill="currentColor" opacity="0.75"/>
+            </g>
+            <path d="M434 300 C 380 350 240 350 180 392" stroke="currentColor" strokeWidth="1.4" strokeDasharray="3 7" opacity="0.5"/>
+            <path d="M466 300 C 520 350 660 360 720 400" stroke="currentColor" strokeWidth="1.4" strokeDasharray="3 7" opacity="0.45"/>
+            <path d="M450 304 C 450 352 420 380 300 432" stroke="currentColor" strokeWidth="1.2" strokeDasharray="3 7" opacity="0.35"/>
+            <path d="M450 304 C 470 352 520 402 620 422" stroke="currentColor" strokeWidth="1.2" strokeDasharray="3 7" opacity="0.35"/>
+            <circle cx="180" cy="392" r="9" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.5"/>
+            <circle cx="720" cy="400" r="9" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.5"/>
+            <circle cx="300" cy="432" r="7" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.4"/>
+            <circle cx="620" cy="422" r="7" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.4"/>
+            <circle cx="162" cy="458" r="6" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.2"/>
+            <circle cx="752" cy="456" r="6" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.2"/>
+            <circle cx="322" cy="352" r="2.5" fill="currentColor" opacity="0.5"/>
+            <circle cx="588" cy="356" r="2.5" fill="currentColor" opacity="0.5"/>
+            <circle cx="452" cy="196" r="2.5" fill="currentColor" opacity="0.45"/>
+            <circle cx="410" cy="210" r="2" fill="currentColor" opacity="0.35"/>
+          </svg>
         </div>
-        <div className="tabbar">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={`tab${t.id === active?.id ? ' active' : ''}`}
-              onClick={() => setActiveId(t.id)}
-              title={`${t.host}:${t.port}`}
-            >
-              <span
-                className={`dot${
-                  t.connState === 'connected' ? ' talking' : ''
-                }`}
-              />
-              {t.serverName || t.host || '新连接'}
-              {t.connState === 'disconnected' &&
-                t.wasConnected &&
-                !t.manualDisconnect && (
-                  <span className="badge connecting">重连{t.reconnectAttempts}/5</span>
-                )}
-              {tabs.length > 1 && (
-                <span
-                  className="tab-close"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    closeTab(t.id)
+        <div className="login-center">
+          <div className="brand login-brand-top">
+            <div className="brand-mark">TS</div>
+            <span>TeamSpeak Web</span>
+          </div>
+          <div className={`login-card${connecting ? ' connecting' : ''}${lastFailed ? ' failed' : ''}`}>
+            <h2>登录</h2>
+            <p className="login-sub">
+              {connecting
+                ? `正在连接 ${active?.host || ''}:${active?.port || ''}`
+                : '连接你的 TeamSpeak 服务器，开始语音协作。'}
+            </p>
+
+            <label className={`field${hostError ? ' invalid' : ''}`}>
+              <span className="field-label">服务器地址</span>
+              <span className="input-wrap">
+                <GlobeIcon />
+                <input
+                  value={addressInput}
+                  onChange={(e) => {
+                    setAddressInput(e.target.value)
+                    if (fieldErrors.host)
+                      setFieldErrors((f) => ({ ...f, host: undefined }))
                   }}
-                >
-                  ×
+                  placeholder="ts.example.com:9987"
+                  disabled={connecting}
+                />
+              </span>
+              {hostError && <span className="field-error">{hostError}</span>}
+              {lastFailed && (
+                <span className="field-error">
+                  {dnsLike
+                    ? '无法解析服务器地址，请检查域名与端口（默认 9987）'
+                    : active?.lastError}
                 </span>
               )}
-            </button>
-          ))}
-          <button type="button" className="tab add" onClick={addTab} title="新建连接">
-            +
-          </button>
-        </div>
-        <span className="spacer" />
-        {whisperActive && (
-          <span className="badge connecting">
-            耳语中 ({active.whisperClients.length + active.whisperChannels.length})
-          </span>
-        )}
-        <span className="badge">{mic.state.micOn ? (muted ? '麦静音' : '麦开') : '麦关'}</span>
-      </header>
+            </label>
 
-      <div className="main">
-        <aside className="panel">
-          <h2>连接</h2>
-          <div className="body">
-            <div className="form-grid">
-              <label>
-                服务器地址
-                <input
-                  value={active?.host || ''}
-                  onChange={(e) =>
-                    active && patchTab(active.id, { host: e.target.value })
+            <label className={`field${nickError ? ' invalid' : ''}`}>
+              <span className="field-label">昵称</span>
+              <input
+                value={active?.nickname || ''}
+                onChange={(e) => {
+                  if (active) patchTab(active.id, { nickname: e.target.value })
+                  if (fieldErrors.nickname)
+                    setFieldErrors((f) => ({ ...f, nickname: undefined }))
+                }}
+                placeholder="你的昵称"
+                disabled={connecting}
+              />
+              {nickError && <span className="field-error">{nickError}</span>}
+            </label>
+
+            <div className="mic-check">
+              <span className={`mic-check-state${micOk ? ' ok' : ''}`}>
+                <MicIcon off={!micOk} />
+                {lastFailed
+                  ? '上次连接失败 · 请检查地址后重试'
+                  : micOk
+                    ? `麦克风自检通过 · ${micDeviceName || '已连接'}`
+                    : mic.state.permission === 'denied'
+                      ? '麦克风未授权 · 请在浏览器地址栏允许'
+                      : '麦克风自检中…'}
+              </span>
+              {lastFailed ? (
+                <button type="button" className="link-btn" onClick={() => setHelpOpen(true)}>
+                  帮助
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() =>
+                    void mic.requestMic(mic.state.selectedId || undefined)
                   }
-                  placeholder="ts.example.com"
-                  disabled={connected || active?.connState === 'connecting'}
-                />
-              </label>
-              <label>
-                端口
-                <input
-                  value={active?.port || ''}
-                  onChange={(e) =>
-                    active && patchTab(active.id, { port: e.target.value })
-                  }
-                  disabled={connected || active?.connState === 'connecting'}
-                />
-              </label>
-              <label>
-                昵称
-                <input
-                  value={active?.nickname || ''}
-                  onChange={(e) =>
-                    active && patchTab(active.id, { nickname: e.target.value })
-                  }
-                  disabled={connected || active?.connState === 'connecting'}
-                />
-              </label>
-              <label>
-                密码（可选）
-                <input
-                  type="password"
-                  value={active?.password || ''}
-                  onChange={(e) =>
-                    active && patchTab(active.id, { password: e.target.value })
-                  }
-                  disabled={connected || active?.connState === 'connecting'}
-                />
-              </label>
-              {(authRequired || gatewayToken) && (
-                <label>
-                  网关 Token
-                  <input
-                    type="password"
-                    value={gatewayToken}
-                    onChange={(e) => {
-                      setGatewayTokenState(e.target.value)
-                      setGatewayToken(e.target.value)
-                    }}
-                    placeholder={authRequired ? '必填' : '可选'}
-                  />
-                </label>
+                >
+                  重测
+                </button>
               )}
-              <div className="row">
-                {connected || active?.connState === 'connecting' ? (
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() => active && disconnectTab(active.id)}
-                  >
-                    断开
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => active && connectTab(active.id)}
-                  >
-                    连接
+            </div>
+
+            {connecting && (
+              <div className="encrypt-row">
+                <span className="encrypt-track"><i /></span>
+                <span className="encrypt-text">正在建立加密通道…</span>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => active && disconnectTab(active.id)}
+                >
+                  取消
+                </button>
+              </div>
+            )}
+
+            <div className="remember-row">
+              <span>记住这台服务器</span>
+              <Switch
+                on={rememberServer}
+                onToggle={() => setRememberServer((v) => !v)}
+                label="记住这台服务器"
+              />
+            </div>
+
+            <button
+              type="button"
+              className="primary login-cta"
+              disabled={connecting}
+              onClick={connectFromLogin}
+            >
+              {connecting ? '正在连接…' : lastFailed ? '重新连接 →' : '连接服务器 →'}
+            </button>
+
+            <div className="login-or"><span>或</span></div>
+            <button
+              type="button"
+              className="guest-link"
+              disabled={connecting}
+              onClick={connectAsGuest}
+            >
+              以游客身份连接
+            </button>
+
+            <div className="recent-block">
+              <div className="recent-head">
+                <span>最近连接</span>
+                {recent.length > 0 && (
+                  <button type="button" className="link-btn" onClick={clearRecent}>
+                    清除
                   </button>
                 )}
               </div>
-              {active?.connState === 'connecting' && (
-                <div className="ok-box">连接中，请稍候…</div>
-              )}
-              {active?.lastError && (
-                <div className="error-box">{active.lastError}</div>
+              {recent.length === 0 ? (
+                <div className="recent-empty">暂无最近连接</div>
+              ) : (
+                <ul className="recent-list">
+                  {recent.map((r) => (
+                    <li key={`${r.host}:${r.port}`}>
+                      <button type="button" onClick={() => pickRecent(r)}>
+                        <span className="recent-label">{r.label}</span>
+                        <span className="recent-addr">
+                          {r.host}:{r.port}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           </div>
+          <div className="login-foot">
+            <div className="login-tagline">端到端加密 · 声控 VOX 与按键 PTT 双模式 · AI 降噪</div>
+            <div className="brand-foot">TeamSpeak Web · 浏览器语音客户端</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
-          <div className="section-gap" />
-          <h2>音频</h2>
-          <div className="body">
-            <div className="form-grid">
-              <label>
-                麦克风
+  // ---------- 主视图 ----------
+
+  const renderMain = () => {
+    return (
+      <div className="main-view">
+        <header className="topbar">
+          <div className="brand">
+            <div className="brand-mark">TS</div>
+            <span>TeamSpeak Web</span>
+          </div>
+          <div className="tabbar">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`tab${t.id === active?.id ? ' active' : ''}`}
+                onClick={() => {
+                  setActiveId(t.id)
+                  patchTab(t.id, { unread: 0, unreadMention: false })
+                }}
+                title={`${t.host}:${t.port}`}
+              >
+                <span
+                  className={`dot${t.connState === 'connected' ? ' talking' : ''}`}
+                />
+                {t.serverName || t.host || '新连接'}
+                {t.connState === 'connected' && ` · ${t.clients.length}人`}
+                {t.unread > 0 && t.id !== active?.id && (
+                  <span
+                    className={`unread-dot${t.unreadMention ? ' mention' : ''}`}
+                  />
+                )}
+                {tabs.length > 1 && (
+                  <span
+                    className="tab-close"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      closeTab(t.id)
+                    }}
+                  >
+                    ×
+                  </span>
+                )}
+              </button>
+            ))}
+            <button type="button" className="tab add" onClick={addTab} title="新建连接">
+              +
+            </button>
+          </div>
+          <span className="spacer" />
+          {whisperActive && (
+            <span className="badge connecting">
+              耳语中 ({active.whisperClients.length + active.whisperChannels.length})
+            </span>
+          )}
+          <div className="top-search">
+            <span className="top-search-icon">⌕</span>
+            <input
+              ref={filterInputRef}
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+              placeholder="搜索频道/成员"
+              aria-label="搜索频道/成员"
+            />
+            <kbd>Ctrl K</kbd>
+          </div>
+          <button
+            type="button"
+            className={`top-icon${soundsOn ? '' : ' off'}`}
+            title={soundsOn ? '通知音效开' : '通知音效关'}
+            onClick={() => {
+              setSoundsOn((v) => {
+                setSoundsEnabled(!v)
+                return !v
+              })
+            }}
+          >
+            <BellIcon on={soundsOn} />
+          </button>
+          <button
+            type="button"
+            className="user-chip"
+            onClick={() => {
+              setSettingsNav('audio')
+              setView('settings')
+            }}
+            title="设置"
+          >
+            <span className="avatar avatar-sm">
+              <PersonIcon />
+            </span>
+            {active?.nickname || '未命名'}
+          </button>
+        </header>
+
+        {insecureContext && !httpsDismissed && (
+          <div className="insecure-bar">
+            <span>
+              当前为非安全上下文（非 HTTPS），语音功能不可用 ·
+              请参考部署指南配置 HTTPS
+            </span>
+            <button
+              type="button"
+              className="insecure-close"
+              onClick={() => {
+                sessionStorage.setItem('tsweb:https-dismissed', '1')
+                setHttpsDismissed(true)
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {active && reconnecting && !reconnectFailed && (
+          <div
+            className="reconnect-bar"
+            role="button"
+            tabIndex={0}
+            title="点击取消自动重连"
+            onClick={() => cancelReconnect(active.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') cancelReconnect(active.id)
+            }}
+          >
+            <div className="reconnect-line" />
+            <span>
+              正在自动重连 {active.reconnectAttempts}/5 · 点击取消
+            </span>
+          </div>
+        )}
+        {active && reconnectFailed && (
+          <div className="reconnect-bar failed">
+            <span>自动重连失败</span>
+            <span className="reconnect-actions">
+              <button type="button" onClick={() => retryReconnect(active.id)}>
+                重试
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => cancelReconnect(active.id)}
+              >
+                放弃
+              </button>
+            </span>
+          </div>
+        )}
+
+        <div className="main">
+          <aside className="panel tree-panel">
+            <div className="server-head">
+              <div className="server-info">
+                <div className="server-name">
+                  {active?.serverName || active?.host}
+                </div>
+                <div className="server-meta">
+                  {active?.channels.length ?? 0} 个频道 · {serverMemberCount} 位成员                </div>
+              </div>
+              <button
+                type="button"
+                className={`icon-btn${filterText ? ' active' : ''}`}
+                title="过滤频道 / 成员（Ctrl+K）"
+                onClick={() => {
+                  if (filterText) setFilterText('')
+                  filterInputRef.current?.focus()
+                }}
+              >
+                ⌕
+              </button>
+            </div>
+            <div className="filter-row">
+              <input
+                value={filterText}
+                onChange={(e) => setFilterText(e.target.value)}
+                placeholder="过滤频道 / 成员"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setFilterText('')
+                }}
+              />
+            </div>
+            <div className="side-section">
+              <button
+                type="button"
+                className={`section-bar${treeCollapsed ? ' collapsed' : ''}`}
+                onClick={() => setTreeCollapsed((v) => !v)}
+                title={treeCollapsed ? '展开频道树' : '折叠频道树'}
+              >
+                <span className="section-title">频道</span>
+                <span className="section-count">{active?.channels.length ?? 0}</span>
+                <i className="section-arrow">{treeCollapsed ? '▸' : '▾'}</i>
+              </button>
+              {!treeCollapsed && (
+                <div className="body" ref={treeBodyRef} onScroll={updateMyChanVisibility}>
+                  <ChannelListView
+                    channels={active?.channels || []}
+                    selfId={active?.selfId ?? null}
+                    activeChannelId={activeChannelId}
+                    selectedChannelId={selectedChannelId}
+                    onSelect={setSelectedChannelId}
+                    onJoin={handleJoin}
+                    onClientMenu={openMenu}
+                    collapsed={collapsed}
+                    onToggleCollapse={(id) => {
+                      setCollapsed((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(id)) next.delete(id)
+                        else next.add(id)
+                        saveCollapsed(next)
+                        return next
+                      })
+                    }}
+                    filter={filterText}
+                  />
+                </div>
+              )}
+              {myChanDir && !treeCollapsed && (
+                <button
+                  type="button"
+                  className="back-to-my"
+                  onClick={() => {
+                    const row = treeBodyRef.current?.querySelector(
+                      `[data-channel-id="${activeChannelId}"]`,
+                    )
+                    row?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+                  }}
+                >
+                  {myChanDir === 'up' ? '↑' : '↓'} 回到我的频道
+                </button>
+              )}
+            </div>
+            <div className="side-section users-section">
+              <button
+                type="button"
+                className={`section-bar${usersCollapsed ? ' collapsed' : ''}`}
+                onClick={() => setUsersCollapsed((v) => !v)}
+                title={usersCollapsed ? '展开在线用户' : '折叠在线用户'}
+              >
+                <span className="section-title">在线用户</span>
+                <span className="section-count">{serverMemberCount}</span>
+                <i className="section-arrow">{usersCollapsed ? '▸' : '▾'}</i>
+              </button>
+              {!usersCollapsed && (
+                <div className="body users-body">
+                  {(active?.clients ?? []).map((u) => (
+                    <div
+                      key={u.id}
+                      className={`user-row${u.id === active?.selfId ? ' me' : ''}${u.isTalking ? ' talking' : ''}`}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        openMenu(u, e)
+                      }}
+                    >
+                      <span className={`user-state ${userStateCls(u)}`} />
+                      <span className="user-nick">
+                        {u.nickname}
+                        {u.id === active?.selfId && <em>（我）</em>}
+                      </span>
+                      <span className="user-channel">
+                        {channelById.get(u.channelId)?.name ?? ''}
+                      </span>
+                    </div>
+                  ))}
+                  {(active?.clients ?? []).length === 0 && (
+                    <div className="empty">暂无在线用户</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </aside>
+
+          <section className="panel voice-panel">
+            <div className="voice-toolbar">
+              <div className="crumb">
+                {channelPath.length > 0 ? channelPath.join(' › ') : '语音频道'}
+              </div>
+              <div className="toolbar-actions">
+                <button type="button" className="tool-btn" onClick={focusInfoCard}>
+                  频道设置
+                </button>
+                <button type="button" className="tool-btn" onClick={inviteCopy}>
+                  邀请成员
+                </button>
+              </div>
+            </div>
+            <div className="voice-body">
+              <div className="voice-top">
+                <div className="member-area">
+                  <div className="voice-title-row">
+                    <h2>{channelName}</h2>
+                    <span className="voice-sub">
+                      {channelMembers.length} 位成员 · 32 kbps Opus · 延迟{' '}
+                      {selfLatency != null ? `${selfLatency} ms` : '—'} · 端到端加密                    </span>
+                  </div>
+                  {focusMember ? (
+                    <div className={`focus-card${statusFor(focusMember).kind === 'talking' ? ' talking' : ''}`}>
+                      <span className={`avatar avatar-lg kind-${statusFor(focusMember).kind}`}>
+                        <PersonIcon />
+                      </span>
+                      <div className="focus-info">
+                        <div className="focus-name">
+                          {focusMember.nickname}
+                          {focusMember.id === active?.selfId && <em>（我）</em>}
+                        </div>
+                        <div className="focus-status">{statusFor(focusMember).text}</div>
+                      </div>
+                      <WaveBars
+                        active={statusFor(focusMember).kind === 'talking'}
+                      />
+                    </div>
+                  ) : (
+                    <div className="focus-card empty">
+                      <span className="focus-name">暂无成员</span>
+                    </div>
+                  )}
+                  <div className="member-list-head">
+                    <span>频道成员</span>
+                    <span className="member-count">
+                      共 {channelMembers.length} 人 · {talkingCount} 人正在说话                    </span>
+                  </div>
+                  <div className="member-list">
+                    {channelMembers.map((c) => {
+                      const st = statusFor(c)
+                      return (
+                        <div
+                          key={c.id}
+                          className={`member-chip${st.kind === 'talking' ? ' talking' : ''}`}
+                          onContextMenu={(e) => {
+                            e.preventDefault()
+                            openMenu(c, e)
+                          }}
+                        >
+                          <span className={`avatar avatar-md kind-${st.kind}`}>
+                            <PersonIcon />
+                            {st.kind === 'muted' && (
+                              <i className="avatar-mic-off"><MicIcon off /></i>
+                            )}
+                            {st.kind === 'listen' && (
+                              <i className="avatar-listen"><HeadphoneIcon /></i>
+                            )}
+                          </span>
+                          <span className="chip-text">
+                            <span className="chip-name">
+                              {c.nickname}
+                              {c.id === active?.selfId && <em>（我）</em>}
+                            </span>
+                            <span className={`chip-status kind-${st.kind}`}>
+                              {st.text}
+                            </span>
+                          </span>
+                        </div>
+                      )
+                    })}
+                    {channelMembers.length === 0 && (
+                      <div className="empty">该频道暂无成员</div>
+                    )}
+                  </div>
+                </div>
+                <div className="info-card" ref={infoCardRef}>
+                  <h3>频道信息</h3>
+                  <div className="kv">
+                    <span>频道类型</span>
+                    <strong>语音为主</strong>
+                  </div>
+                  <div className="kv">
+                    <span>音频编码</span>
+                    <strong>Opus 32 kbps</strong>
+                  </div>
+                  <div className="kv">
+                    <span>传输加密</span>
+                    <strong>ECDH + EAX</strong>
+                  </div>
+                  <div className="kv">
+                    <span>服务器地址</span>
+                    <strong>{active?.host || '—'}</strong>
+                  </div>
+                  <div className="kv">
+                    <span>我的延迟</span>
+                    <strong>{selfLatency != null ? `${selfLatency} ms` : '—'}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <p className="channel-desc">{channelDesc}</p>
+
+              <div className="voice-tags">
+                <span className="tag">语音频道</span>
+                <span className="tag">Opus 32 kbps</span>
+                <span className="tag">端到端加密</span>
+              </div>
+
+              <div className="activity">
+                <div className="activity-head">
+                  <h3>频道动态</h3>
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => setSideTab('events')}
+                  >
+                    查看全部
+                  </button>
+                </div>
+                <div className="activity-list">
+                  {recentLogs.length === 0 && (
+                    <div className="activity-empty">暂无动态</div>
+                  )}
+                  {recentLogs.map((l, i) => (
+                    <div key={`${l.ts}-${i}`} className="activity-item">
+                      <span className="activity-icon">{LOG_ICON[l.event]}</span>
+                      <span className="activity-text">{logText(l)}</span>
+                      <span className="activity-time">{formatTime(l.ts)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <aside className="panel chat-panel">
+            <div className="side-tabs">
+              <button
+                type="button"
+                className={`side-tab${sideTab === 'chat' ? ' active' : ''}`}
+                onClick={() => setSideTab('chat')}
+              >
+                聊天
+              </button>
+              <button
+                type="button"
+                className={`side-tab${sideTab === 'events' ? ' active' : ''}`}
+                onClick={() => {
+                  setSideTab('events')
+                  if (active) patchTab(active.id, { eventsUnread: 0 })
+                }}
+              >
+                事件
+                {active && active.eventsUnread > 0 && sideTab !== 'events' && (
+                  <span className="side-badge">{active.eventsUnread}</span>
+                )}
+              </button>
+            </div>
+            {sideTab === 'chat' ? (
+              <>
+                <div className="chat-wrap">
+                  <div
+                    className="chat-log"
+                    ref={chatLogRef}
+                    onScroll={(e) => {
+                      const el = e.currentTarget
+                      chatPinned.current =
+                        el.scrollHeight - el.scrollTop - el.clientHeight < 40
+                      if (chatPinned.current) setNewMsgCount(0)
+                    }}
+                  >
+                    {!active?.messages.length && (
+                      <div className="empty">还没有消息，来说第一句</div>
+                    )}
+                    {active?.messages.map((m, i) => (
+                      <div key={`${m.ts}-${i}`} className="msg">
+                        <span className="from">{m.from}</span>
+                        {m.whisper && <span className="badge connecting">耳语</span>}{' '}
+                        <span>{m.text}</span>
+                        <span className="time">{formatTime(m.ts)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {newMsgCount > 0 && (
+                    <button
+                      type="button"
+                      className="new-msg-pill"
+                      onClick={() => {
+                        const el = chatLogRef.current
+                        if (el) el.scrollTop = el.scrollHeight
+                        chatPinned.current = true
+                        setNewMsgCount(0)
+                      }}
+                    >
+                      共 {newMsgCount} 条新消息
+                    </button>
+                  )}
+                </div>
+                <div className="chat-input">
+                  <select
+                    value={active?.chatTarget || 'channel'}
+                    onChange={(e) => {
+                      if (!active) return
+                      const v = e.target.value as 'channel' | 'server' | 'pm'
+                      patchTab(active.id, { chatTarget: v })
+                    }}
+                    disabled={!connected}
+                  >
+                    <option value="channel">当前频道</option>
+                    <option value="server">服务器消息</option>
+                    <option value="pm">私聊</option>
+                  </select>
+                  {active?.chatTarget === 'pm' && (
+                    <select
+                      value={active.pmTarget ?? ''}
+                      onChange={(e) => {
+                        if (!active) return
+                        patchTab(active.id, {
+                          pmTarget: e.target.value ? Number(e.target.value) : null,
+                        })
+                      }}
+                      disabled={!connected}
+                    >
+                      <option value="">选择对象</option>
+                      {active.clients
+                        .filter((c) => c.id !== active.selfId)
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.nickname}
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                  <input
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSend()
+                      }
+                    }}
+                    placeholder={connected ? '输入消息，Enter 发送' : '请先连接'}
+                    disabled={!connected}
+                  />
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={handleSend}
+                    disabled={!connected}
+                  >
+                    发送
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="chat-log">
+                {!active?.logs.length && (
+                  <div className="empty">连接后显示进出/移动事件</div>
+                )}
+                {active?.logs.map((e, i) => (
+                  <div key={`${e.ts}-${i}`} className="msg">
+                    <span className="from">{LOG_ICON[e.event]}</span>
+                    <span>{logText(e)}</span>
+                    <span className="time">{formatTime(e.ts)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </aside>
+        </div>
+
+        <footer className={`voice-bar${uplink ? ' uplink' : ''}`}>
+          <button
+            type="button"
+            className={`vb-mic${muted || deafened ? ' off' : ''}`}
+            onClick={toggleMute}
+            disabled={deafened}
+            title={muted ? '取消静音（Ctrl+M）' : '静音麦克风（Ctrl+M）'}
+            aria-label={muted ? '取消静音' : '静音麦克风'}
+            aria-pressed={muted}
+          >
+            <span
+              className="vb-ring"
+              style={{
+                background: `conic-gradient(currentColor ${
+                  Math.round(Math.min(1, meterLevel) * 360)
+                }deg, var(--ring-track) 0deg)`,
+              }}
+            />
+            <span className="vb-mic-icon">
+              <MicIcon off={muted || deafened || !mic.state.micOn} />
+            </span>
+          </button>
+
+          <div className="vb-left">
+            <span className="vb-mode">
+              {mic.state.vox.mode === 'open' && '常开'}
+              {mic.state.vox.mode === 'vox' && '声控 VOX'}
+              {mic.state.vox.mode === 'ptt' && '按键 PTT'}
+            </span>
+            {mic.state.vox.mode === 'vox' && (
+              <span className="vb-threshold-label">
+                阈值 {voxPct}% · 悬停 250 ms
+              </span>
+            )}
+            <div className="meter vb-meter">
+              <span
+                className={`vb-fill${uplink ? ' active' : ''}`}
+                style={{ width: `${Math.round(meterLevel * 100)}%` }}
+              />
+              {mic.state.vox.mode === 'vox' && (
+                <i
+                  className="vb-threshold"
+                  style={{
+                    left: `${Math.round(mic.state.vox.threshold * 100)}%`,
+                  }}
+                />
+              )}
+            </div>
+          </div>
+          <div className="vb-center">
+            {mic.state.micOn && mic.state.vox.mode === 'ptt' && (
+              <span className={mic.state.pttHeld && !muted ? 'vb-talking' : ''}>
+                {mic.state.pttHeld && !muted
+                  ? `说话中（已上行 ${talkKbps} kbps）`
+                  : `按住 ${mic.keyLabel(mic.state.vox.pttKey)} 说话`}
+              </span>
+            )}
+            {mic.state.micOn && mic.state.vox.mode === 'vox' && (
+              <span className={uplink ? 'vb-talking' : ''}>
+                {uplink
+                  ? `说话中（已上行 ${talkKbps} kbps）`
+                  : '等待声音…'}
+              </span>
+            )}
+            {mic.state.micOn && mic.state.vox.mode === 'open' && (
+              <span className={uplink ? 'vb-talking' : ''}>
+                {muted ? '已静音' : `常开上行中（${talkKbps} kbps）`}
+              </span>
+            )}
+            {!mic.state.micOn && <span>麦克风未开启</span>}
+          </div>
+          <div className="vb-speakers" aria-live="polite" aria-atomic="false">
+            {speakers.slice(0, 2).map((c) => (
+              <span key={c.id} className="vb-speaker">
+                <span className="dot talking" />
+                {c.nickname}
+              </span>
+            ))}
+            {speakers.length > 2 && (
+              <span className="vb-more">+{speakers.length - 2}</span>
+            )}
+          </div>
+          <div className="vb-actions">
+            <button
+              type="button"
+              className={`vb-btn${deafened ? ' on' : ''}`}
+              onClick={toggleDeafen}
+              title="Deafen：闭麦并静音所有输出（Ctrl+Shift+M）"
+              aria-pressed={deafened}
+            >
+              <HeadphoneIcon off={deafened} />
+              <span>{deafened ? 'Deafen 中' : 'Deafen'}</span>
+            </button>
+          </div>
+        </footer>
+      </div>
+    )
+  }
+
+  // ---------- 设置视图 ----------
+
+  const renderSettings = () => {
+    const navItems: { id: SettingsNav; label: string }[] = [
+      { id: 'account', label: '帐号与身份' },
+      { id: 'audio', label: '音频与语音' },
+      { id: 'activation', label: '语音激活' },
+      { id: 'notify', label: '通知' },
+      { id: 'theme', label: '界面与主题' },
+      { id: 'network', label: '网络与网关' },
+    ]
+    const titles: Record<SettingsNav, { title: string; sub: string }> = {
+      account: { title: '帐号与身份', sub: '昵称与身份信息，保存在本机' },
+      audio: { title: '音频与语音', sub: '设备、发送方式与音量，改动即时生效并保存在本机' },
+      activation: { title: '语音激活', sub: '控制麦克风何时上行，改动即时生效' },
+      notify: { title: '通知', sub: '通知音效与桌面通知' },
+      theme: { title: '界面与主题', sub: '外观与显示偏好' },
+      network: { title: '网络与网关', sub: '网关地址、认证与端口' },
+    }
+    const t = titles[settingsNav]
+
+    const renderContent = () => {
+      switch (settingsNav) {
+        case 'account':
+          return (
+            <SettingRow label="昵称">
+              <input
+                value={active?.nickname || ''}
+                onChange={(e) =>
+                  active && patchTab(active.id, { nickname: e.target.value })
+                }
+                placeholder="你的昵称"
+              />
+            </SettingRow>
+          )
+        case 'audio':
+          return (
+            <>
+              {mic.state.permission === 'denied' && (
+                <div className="error-box">
+                  麦克风权限被拒绝 → 在浏览器地址栏左侧锁形图标中重新允许
+                  <div style={{ marginTop: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void mic.requestMic(mic.state.selectedId || undefined)
+                      }
+                    >
+                      重试
+                    </button>
+                  </div>
+                </div>
+              )}
+              <SettingRow
+                label="输入设备"
+                right={
+                  <span className="setting-status">
+                    已授权 · 48 kHz · 单声道                  </span>
+                }
+              >
                 <select
                   value={mic.state.selectedId}
                   onChange={async (e) => {
@@ -810,115 +2029,55 @@ export default function App() {
                     </option>
                   ))}
                 </select>
-              </label>
-              <div className="meter">
-                <span
-                  style={{
-                    width: `${Math.round((muted ? 0 : mic.state.level) * 100)}%`,
-                  }}
-                />
-              </div>
-              <div className="row">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const n = !muted
-                    setMuted(n)
-                    mic.setMuted(n)
-                  }}
-                >
-                  {muted ? '取消静音' : '静音'}
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => {
-                    if (mic.state.micOn) mic.stopMic()
-                    else void mic.requestMic(mic.state.selectedId || undefined)
-                  }}
-                >
-                  {mic.state.micOn ? '关麦' : '开麦'}
-                </button>
-              </div>
-
-              <label>
-                发送方式
-                <select
-                  value={mic.state.vox.mode}
-                  onChange={(e) =>
-                    mic.setVox({ mode: e.target.value as 'open' | 'vox' | 'ptt' })
-                  }
-                >
-                  <option value="open">常开（一直上行）</option>
-                  <option value="vox">声控 VOX</option>
-                  <option value="ptt">按键 PTT</option>
-                </select>
-              </label>
-
-              {mic.state.vox.mode === 'vox' && (
-                <label>
-                  VOX 阈值 {Math.round(mic.state.vox.threshold * 100)}%
-                  <input
-                    type="range"
-                    min={1}
-                    max={60}
-                    value={Math.round(mic.state.vox.threshold * 100)}
-                    onChange={(e) =>
-                      mic.setVox({ threshold: Number(e.target.value) / 100 })
-                    }
-                  />
-                  <div className="meter" style={{ marginTop: 4 }}>
-                    <span
-                      style={{
-                        width: `${Math.round((muted ? 0 : mic.state.level) * 100)}%`,
-                        background:
-                          mic.state.gateOpen && !muted
-                            ? 'var(--accent)'
-                            : undefined,
-                      }}
-                    />
-                  </div>
-                  <span className="hint">
-                    {mic.state.gateOpen && !muted ? '说话中（已上行）' : '低于阈值，未上行'}
-                  </span>
-                </label>
-              )}
-
-              {mic.state.vox.mode === 'ptt' && (
-                <label>
-                  PTT 按键
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const onKey = (e: KeyboardEvent) => {
-                        e.preventDefault()
-                        mic.setVox({ pttKey: e.code })
-                        window.removeEventListener('keydown', onKey, true)
-                      }
-                      window.addEventListener('keydown', onKey, true)
+              </SettingRow>
+              <SettingRow
+                label="输入电平"
+                right={<span className="setting-status">{inputDb} dB</span>}
+              >
+                <div className="level-meter">
+                  <span
+                    style={{
+                      width: `${Math.round((muted ? 0 : mic.state.level) * 100)}%`,
                     }}
-                  >
-                    {mic.state.vox.pttKey === 'Space'
-                      ? '空格'
-                      : mic.state.vox.pttKey}
-                    （点击后按新键）
-                  </button>
-                  <span className="hint">
-                    按住 {mic.state.vox.pttKey === 'Space' ? '空格' : mic.state.vox.pttKey}{' '}
-                    说话
-                    {mic.state.pttHeld ? ' · 按住中' : ''}
+                  />
+                </div>
+              </SettingRow>
+              <SettingRow label="AI 降噪 RNNoise">
+                <Switch on={rnnoiseOn} onToggle={toggleRnnoise} label="AI 降噪 RNNoise" />
+              </SettingRow>
+              {renderActivationControls()}
+              <SettingRow
+                label="输出设备"
+                right={
+                  <span className="setting-status">
+                    {outputDevices.length} 个输出设备可用                  </span>
+                }
+              >
+                <select
+                  value={sinkId}
+                  onChange={(e) => {
+                    const id = e.target.value
+                    setSinkId(id)
+                    applySinkId(id)
+                    void mic.setOutputDevice(id)
+                  }}
+                >
+                  <option value="">系统默认</option>
+                  {outputDevices.map((d) => (
+                    <option key={d.deviceId} value={d.deviceId}>
+                      {d.label || d.deviceId.slice(0, 8)}
+                    </option>
+                  ))}
+                </select>
+              </SettingRow>
+              <SettingRow
+                label="主音量"
+                right={
+                  <span className="setting-status">
+                    {Math.round(mic.state.outputVolume * 100)}%
                   </span>
-                </label>
-              )}
-
-              <div className="hint">
-                {mic.state.vox.mode === 'open' && '常开：麦克风一直编码上行'}
-                {mic.state.vox.mode === 'vox' && 'VOX：电平超过阈值才发送'}
-                {mic.state.vox.mode === 'ptt' && 'PTT：按住快捷键才发送'}
-              </div>
-
-              <label>
-                总音量 {Math.round(mic.state.outputVolume * 100)}%
+                }
+              >
                 <input
                   type="range"
                   min={0}
@@ -928,213 +2087,255 @@ export default function App() {
                     mic.setOutputVolume(Number(e.target.value) / 100)
                   }
                 />
-              </label>
-
-              {canSink && (
-                <label>
-                  输出设备
-                  <select
-                    value={sinkId}
-                    onChange={(e) => {
-                      const id = e.target.value
-                      setSinkId(id)
-                      applySinkId(id)
-                      void mic.setOutputDevice(id)
-                    }}
-                  >
-                    <option value="">系统默认</option>
-                    {outputDevices.map((d) => (
-                      <option key={d.deviceId} value={d.deviceId}>
-                        {d.label || d.deviceId.slice(0, 8)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-
-              <label className="row" style={{ alignItems: 'center' }}>
-                <input
-                  type="checkbox"
-                  checked={soundsOn}
-                  onChange={(e) => {
-                    setSoundsOn(e.target.checked)
-                    setSoundsEnabled(e.target.checked)
+              </SettingRow>
+              <SettingRow label="通知音效（进出 / 私聊 / Poke）">
+                <Switch
+                  on={soundsOn}
+                  onToggle={() => {
+                    setSoundsOn((v) => {
+                      setSoundsEnabled(!v)
+                      return !v
+                    })
                   }}
-                  style={{ width: 'auto' }}
+                  label="通知音效"
                 />
-                <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>
-                  通知音效（进出/私聊/Poke）
-                </span>
-              </label>
-
-              {active?.connState === 'disconnected' &&
-                active.wasConnected &&
-                !active.manualDisconnect && (
-                  <div className="ok-box">
-                    正在自动重连 {active.reconnectAttempts}/5…
-                  </div>
-                )}
-              {whisperActive && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    active?.client?.send({ type: 'whisper_clear' })
-                    if (active)
-                      patchTab(active.id, {
-                        whisperClients: [],
-                        whisperChannels: [],
-                      })
-                  }}
-                >
-                  清空耳语目标
-                </button>
-              )}
-            </div>
-          </div>
-        </aside>
-
-        <section className="panel">
-          <h2>频道（右键成员：私聊/Poke/耳语/音量）</h2>
-          <div className="body">
-            <ChannelListView
-              channels={active?.channels || []}
-              selfId={active?.selfId ?? null}
-              activeChannelId={activeChannelId}
-              onJoin={handleJoin}
-              onClientMenu={openMenu}
-              collapsed={collapsed}
-              onToggleCollapse={(id) => {
-                setCollapsed((prev) => {
-                  const next = new Set(prev)
-                  if (next.has(id)) next.delete(id)
-                  else next.add(id)
-                  saveCollapsed(next)
-                  return next
-                })
-              }}
-            />
-          </div>
-        </section>
-
-        <section className="panel chat-panel">
-          <div className="side-tabs">
-            <button
-              type="button"
-              className={`side-tab${sideTab === 'chat' ? ' active' : ''}`}
-              onClick={() => setSideTab('chat')}
-            >
-              聊天
-            </button>
-            <button
-              type="button"
-              className={`side-tab${sideTab === 'events' ? ' active' : ''}`}
-              onClick={() => setSideTab('events')}
-            >
-              事件
-            </button>
-          </div>
-          {sideTab === 'chat' ? (
-            <>
-              <div className="chat-log">
-                {!active?.messages.length && <div className="empty">连接后显示消息</div>}
-                {active?.messages.map((m, i) => (
-                  <div key={`${m.ts}-${i}`} className="msg">
-                    <span className="from">{m.from}</span>
-                    {m.whisper && <span className="badge connecting">耳语</span>}{' '}
-                    <span>{m.text}</span>
-                    <span className="time">{formatTime(m.ts)}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="chat-input">
-                <select
-                  value={active?.chatTarget || 'channel'}
-                  onChange={(e) => {
-                    if (!active) return
-                    const v = e.target.value as 'channel' | 'server' | 'pm'
-                    patchTab(active.id, { chatTarget: v })
-                  }}
-                  disabled={!connected}
-                >
-                  <option value="channel">当前频道</option>
-                  <option value="server">服务器消息</option>
-                  <option value="pm">私聊</option>
-                </select>
-                {active?.chatTarget === 'pm' && (
-                  <select
-                    value={active.pmTarget ?? ''}
-                    onChange={(e) => {
-                      if (!active) return
-                      patchTab(active.id, {
-                        pmTarget: e.target.value ? Number(e.target.value) : null,
-                      })
-                    }}
-                    disabled={!connected}
-                  >
-                    <option value="">选择对象</option>
-                    {active.clients
-                      .filter((c) => c.id !== active.selfId)
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.nickname}
-                        </option>
-                      ))}
-                  </select>
-                )}
-                <input
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      handleSend()
-                    }
-                  }}
-                  placeholder={connected ? '输入消息，Enter 发送' : '请先连接'}
-                  disabled={!connected}
+              </SettingRow>
+              <SettingRow label="桌面通知（页面失焦时弹出）">
+                <Switch
+                  on={desktopNotifyOn}
+                  onToggle={toggleDesktopNotify}
+                  label="桌面通知"
                 />
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={handleSend}
-                  disabled={!connected}
-                >
-                  发送
-                </button>
-              </div>
+              </SettingRow>
             </>
-          ) : (
-            <div className="chat-log">
-              {!active?.logs.length && (
-                <div className="empty">连接后显示进出/移动事件</div>
+          )
+        case 'activation':
+          return <>{renderActivationControls()}</>
+        case 'notify':
+          return (
+            <>
+              <SettingRow label="通知音效（进出 / 私聊 / Poke）">
+                <Switch
+                  on={soundsOn}
+                  onToggle={() => {
+                    setSoundsOn((v) => {
+                      setSoundsEnabled(!v)
+                      return !v
+                    })
+                  }}
+                  label="通知音效"
+                />
+              </SettingRow>
+              <SettingRow label="桌面通知（页面失焦时弹出）">
+                <Switch
+                  on={desktopNotifyOn}
+                  onToggle={toggleDesktopNotify}
+                  label="桌面通知"
+                />
+              </SettingRow>
+            </>
+          )
+        case 'theme':
+          return (
+            <SettingRow label="主题">
+              <div className="theme-options">
+                <button type="button" className="theme-option active">
+                  浅色（默认）
+                </button>
+                <button type="button" className="theme-option" disabled title="即将上线">
+                  深色
+                </button>
+              </div>
+            </SettingRow>
+          )
+        case 'network':
+          return (
+            <>
+              {(authRequired || gatewayToken) ? (
+                <SettingRow label="网关 Token">
+                  <input
+                    type="password"
+                    value={gatewayToken}
+                    onChange={(e) => {
+                      setGatewayTokenState(e.target.value)
+                      setGatewayToken(e.target.value)
+                    }}
+                    placeholder={authRequired ? '必填' : '可选'}
+                  />
+                </SettingRow>
+              ) : (
+                <SettingRow label="网关认证">
+                  <span className="setting-hint">当前网关无需认证</span>
+                </SettingRow>
               )}
-              {active?.logs.map((e, i) => (
-                <div key={`${e.ts}-${i}`} className="msg">
-                  <span className="from">{LOG_ICON[e.event]}</span>
-                  <span>
-                    {e.nickname || `#${e.clientId ?? '?'}`}
-                    {e.event === 'join' && ' 进入频道'}
-                    {e.event === 'leave' && ' 离开'}
-                    {e.event === 'move' &&
-                      ` 移动到频道 #${e.channelId ?? '?'}`}
-                    {e.event === 'connect' && ' 已连接'}
-                    {e.event === 'disconnect' && ' 断开'}
-                    {e.event === 'poke' && ' Poke'}
-                    {e.detail ? ` · ${e.detail}` : ''}
-                  </span>
-                  <span className="time">{formatTime(e.ts)}</span>
-                </div>
-              ))}
+              <SettingRow label="默认端口">
+                <span className="setting-hint">TeamSpeak 语音端口默认为 9987</span>
+              </SettingRow>
+            </>
+          )
+      }
+    }
+
+    return (
+      <div className="settings-view">
+        <header className="topbar">
+          <div className="brand">
+            <div className="brand-mark">TS</div>
+            <span>TeamSpeak Web</span>
+          </div>
+          <span className="crumb crumb-settings">设置</span>
+          <span className="spacer" />
+          <button
+            type="button"
+            className="back-btn"
+            onClick={() => setView(connected ? 'main' : 'login')}
+          >
+            ‹ 返回
+          </button>
+          <span className="user-chip static">
+            <span className="avatar avatar-sm">
+              <PersonIcon />
+            </span>
+            {active?.nickname || '未命名'}
+          </span>
+        </header>
+
+        <div className="settings-body">
+          <aside className="settings-nav">
+            <div className="nav-title">设置</div>
+            {navItems.map((n) => (
+              <button
+                key={n.id}
+                type="button"
+                className={settingsNav === n.id ? 'active' : ''}
+                onClick={() => setSettingsNav(n.id)}
+              >
+                {n.label}
+              </button>
+            ))}
+            <div className="nav-spacer" />
+            <button type="button" className="nav-leave" onClick={leaveServer}>
+              断开连接
+            </button>
+          </aside>
+          <section className="settings-content">
+            <div className="settings-head">
+              <div>
+                <h2>{t.title}</h2>
+                <p>{t.sub}</p>
+              </div>
+              <div className="settings-actions">
+                <button type="button" className="ghost" onClick={resetSettings}>
+                  恢复默认
+                </button>
+                <button type="button" className="primary" onClick={saveSettings}>
+                  保存设置
+                </button>
+              </div>
             </div>
-          )}
-        </section>
+            <div className="setting-block">{renderContent()}</div>
+          </section>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="app">
+      <div className="bg-blobs" aria-hidden="true">
+        <i className="blob b1" />
+        <i className="blob b2" />
+        <i className="blob b3" />
+        <i className="blob b4" />
+        <i className="blob b5" />
+        <i className="blob b6" />
+        <i className="blob b7" />
+      </div>
+      {view === 'settings' ? (
+        renderSettings()
+      ) : connected ? (
+        renderMain()
+      ) : (
+        renderLogin()
+      )}
+
+      {helpOpen && (
+        <div className="shortcut-overlay" onClick={() => setHelpOpen(false)}>
+          <div
+            className="shortcut-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="帮助"
+          >
+            <h3>帮助</h3>
+            <div className="shortcut-list">
+              <div className="kv">
+                <span>服务器地址格式</span>
+                <strong>host 或 host:端口</strong>
+              </div>
+              <div className="kv">
+                <span>默认端口</span>
+                <strong>9987</strong>
+              </div>
+              <div className="kv">
+                <span>需要 HTTPS 才能使用麦克风</span>
+                <strong>localhost 除外</strong>
+              </div>
+              <div className="kv">
+                <span>无法解析域名</span>
+                <strong>检查拼写与 DNS</strong>
+              </div>
+            </div>
+            <button type="button" onClick={() => setHelpOpen(false)}>
+              关闭
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showShortcuts && (
+        <div className="shortcut-overlay" onClick={() => setShowShortcuts(false)}>
+          <div
+            className="shortcut-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="键盘快捷键"
+          >
+            <h3>键盘快捷键</h3>
+            <div className="shortcut-list">
+              <div className="kv"><span>过滤频道 / 成员</span><strong>Ctrl/⌘ K</strong></div>
+              <div className="kv"><span>切换服务器标签</span><strong>Ctrl/⌘ 1…9</strong></div>
+              <div className="kv"><span>关闭当前标签</span><strong>Ctrl/⌘ W</strong></div>
+              <div className="kv"><span>静音切换</span><strong>Ctrl/⌘ M</strong></div>
+              <div className="kv"><span>Deafen 切换</span><strong>Ctrl/⌘ ⇧ M</strong></div>
+              <div className="kv"><span>频道树移动选中（树聚焦时）</span><strong>↑ / ↓</strong></div>
+              <div className="kv"><span>加入选中频道（树聚焦时）</span><strong>Enter</strong></div>
+              <div className="kv"><span>双击频道加入</span><strong>鼠标双击</strong></div>
+              <div className="kv"><span>关闭弹层 / 菜单</span><strong>Esc</strong></div>
+              <div className="kv"><span>本页面</span><strong>?</strong></div>
+            </div>
+            <button type="button" onClick={() => setShowShortcuts(false)}>
+              关闭（Esc）
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="toast-stack">
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast ${t.kind}`}>
+            {t.text}
+          </div>
+        ))}
       </div>
 
       {menu && active && (
         <div
+          ref={menuRef}
           className="context-menu"
           style={{ left: menu.x, top: menu.y }}
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={onMenuKeyDown}
         >
           <div className="context-title">{menu.client.nickname}</div>
           <button
@@ -1162,41 +2363,55 @@ export default function App() {
           >
             Poke
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              active.client?.send({
-                type: 'whisper_add',
-                target: { kind: 'client', id: menu.client.id },
-              })
-              patchTab(active.id, {
-                whisperClients: [
-                  ...new Set([...active.whisperClients, menu.client.id]),
-                ],
-              })
-              setMenu(null)
-            }}
-          >
-            加入耳语目标
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const cid = menu.client.channelId
-              active.client?.send({
-                type: 'whisper_add',
-                target: { kind: 'channel', id: cid },
-              })
-              patchTab(active.id, {
-                whisperChannels: [
-                  ...new Set([...active.whisperChannels, cid]),
-                ],
-              })
-              setMenu(null)
-            }}
-          >
-            耳语其所在频道
-          </button>
+          <div className="context-item">
+            <button
+              type="button"
+              className={menuSub ? 'sub-open' : ''}
+              onClick={() => setMenuSub((s) => !s)}
+            >
+              耳语 <span className="sub-arrow"> › </span>
+            </button>
+            {menuSub && (
+              <div className="context-sub">
+                <button
+                  type="button"
+                  onClick={() => {
+                    active.client?.send({
+                      type: 'whisper_add',
+                      target: { kind: 'client', id: menu.client.id },
+                    })
+                    patchTab(active.id, {
+                      whisperClients: [
+                        ...new Set([...active.whisperClients, menu.client.id]),
+                      ],
+                    })
+                    setMenu(null)
+                  }}
+                >
+                  加入耳语目标
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cid = menu.client.channelId
+                    active.client?.send({
+                      type: 'whisper_add',
+                      target: { kind: 'channel', id: cid },
+                    })
+                    patchTab(active.id, {
+                      whisperChannels: [
+                        ...new Set([...active.whisperChannels, cid]),
+                      ],
+                    })
+                    setMenu(null)
+                  }}
+                >
+                  耳语其所在频道
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="context-sep" />
           <button
             type="button"
             onClick={() => {
@@ -1206,20 +2421,31 @@ export default function App() {
           >
             复制昵称
           </button>
-          <div className="context-vol">
-            <span>音量</span>
-            {[0, 50, 100, 150].map((pct) => (
-              <button
-                key={pct}
-                type="button"
-                onClick={() => {
-                  setClientVol(menu.client.nickname, menu.client.id, pct / 100)
-                  setMenu(null)
-                }}
-              >
-                {pct}%
-              </button>
-            ))}
+          <div className="context-vol-slider">
+            <span>
+              音量{' '}
+              {Math.round(
+                (volumes[`${menu.client.id}:${menu.client.nickname}`] ?? 1) *
+                  100,
+              )}
+              %
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={150}
+              value={Math.round(
+                (volumes[`${menu.client.id}:${menu.client.nickname}`] ?? 1) *
+                  100,
+              )}
+              onChange={(e) =>
+                setClientVol(
+                  menu.client.nickname,
+                  menu.client.id,
+                  Number(e.target.value) / 100,
+                )
+              }
+            />
           </div>
         </div>
       )}

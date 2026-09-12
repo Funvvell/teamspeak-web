@@ -59,6 +59,6 @@ try {
   process.exit(0)
 } catch (e) {
   console.error('FAIL', e?.message || e)
-  try { await client.disconnect() } catch {}
+  try { await client.disconnect() } catch { /* ignore */ }
   process.exit(1)
 }

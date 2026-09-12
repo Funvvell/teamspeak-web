@@ -174,11 +174,15 @@ location /ws {
 | `DEFAULT_HOST` | 空 | 首次打开预填服务器 |
 | `DEFAULT_PORT` | `9987` | 预填端口 |
 | `DEFAULT_NICKNAME` | 空 | 预填昵称 |
+| `MAX_PAYLOAD` | 1048576 | WS 单帧载荷上限（字节），防超长帧耗尽内存 |
+| `MAX_CONNECTIONS` | 64 | 并发 WS 连接上限，防资源耗尽 |
 
 ## 验证
 
 ```bash
 npm run typecheck
+npm run lint
+npm run test:unit
 npm run smoke:voice
 npm run smoke:ts3 -- <ts-host> [port]
 npm run smoke:ws

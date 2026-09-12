@@ -36,7 +36,20 @@ export class Session {
         : Array.isArray(data)
           ? Buffer.concat(data)
           : Buffer.from(data as ArrayBuffer)
-      if (buf.length >= 2 && buf[0] === OPCODE_AUDIO && this.adapter?.sendVoice) {
+      if (buf[0] !== OPCODE_AUDIO) {
+        console.warn(
+          '[session] unknown binary opcode:',
+          buf[0],
+          'len=' + buf.length,
+        )
+        return
+      }
+      if (buf.length < 3) {
+        // 帧头至少 opcode+codec+1 字节载荷，空帧直接丢弃
+        console.warn('[session] dropped empty audio frame, len=' + buf.length)
+        return
+      }
+      if (this.adapter?.sendVoice) {
         try {
           const codec = buf[1]
           this.adapter.sendVoice(buf.subarray(2), codec)

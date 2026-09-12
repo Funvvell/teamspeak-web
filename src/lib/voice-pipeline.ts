@@ -92,7 +92,6 @@ export interface VoicePipeline {
 
 export function createVoicePipeline(): VoicePipeline {
   let audioCtx: AudioContext | null = null
-  let captureCtx: AudioContext | null = null
   let workletNode: AudioWorkletNode | null = null
   let mediaStream: MediaStream | null = null
   let encoder: AudioEncoder | null = null
@@ -176,7 +175,7 @@ export function createVoicePipeline(): VoicePipeline {
     if (nextPlayTime > now + 0.5) nextPlayTime = now + 0.05
   }
 
-  function flushPcm(onFrame: (opus: Uint8Array) => void) {
+  function flushPcm() {
     if (!encoder || pcmLength < FRAME_SAMPLES) return
     // Concat and split into 20ms frames
     const all = new Float32Array(pcmLength)
@@ -244,7 +243,6 @@ export function createVoicePipeline(): VoicePipeline {
     mediaStream = stream
     const ctx = ensureCtx()
     // Separate context for capture so device rate can differ; resample via AudioContext
-    captureCtx = ctx
     await ctx.audioWorklet.addModule('/capture-processor.js')
     const source = ctx.createMediaStreamSource(stream)
     workletNode = new AudioWorkletNode(ctx, 'capture-processor')
@@ -252,7 +250,7 @@ export function createVoicePipeline(): VoicePipeline {
       const pcm = ev.data as Float32Array
       pcmBuffer.push(pcm)
       pcmLength += pcm.length
-      flushPcm(onFrame)
+      flushPcm()
     }
     source.connect(workletNode)
     // Keep graph alive without feedback to speakers

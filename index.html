@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f5f7" />
     <title>TeamSpeak Web</title>
   </head>
   <body>
@@ -14,11 +15,11 @@
           var root = document.getElementById('root')
           if (root && root.childElementCount === 0 && !root.textContent) {
             root.innerHTML =
-              '<div style="padding:24px;color:#e7eef7;background:#0f1419;min-height:100vh;font-family:system-ui,sans-serif">' +
+              '<div style="padding:24px;color:#1d1d1f;background:#f5f5f7;min-height:100vh;font-family:system-ui,sans-serif">' +
               '<h1 style="font-size:18px;margin:0 0 12px">TeamSpeak Web 未启动</h1>' +
-              '<p style="color:#8b9aab;font-size:14px;line-height:1.6">这是 Vite 入口页，不能直接以 file:// 打开。请在项目目录执行：</p>' +
-              '<pre style="background:#1a222c;padding:12px;border-radius:8px;color:#3ecf8e">npm run build\nnpm start</pre>' +
-              '<p style="color:#8b9aab;font-size:14px">然后打开 <a href="http://127.0.0.1:8080" style="color:#2d8cff">http://127.0.0.1:8080</a></p>' +
+              '<p style="color:#7a7a7f;font-size:14px;line-height:1.6">这是 Vite 入口页，不能直接以 file:// 打开。请在项目目录执行：</p>' +
+              '<pre style="background:#ffffff;border:1px solid rgba(15,20,30,0.08);padding:12px;border-radius:8px;color:#2e9e5b">npm run build\nnpm start</pre>' +
+              '<p style="color:#7a7a7f;font-size:14px">然后打开 <a href="http://127.0.0.1:8080" style="color:#0066cc">http://127.0.0.1:8080</a></p>' +
               '</div>'
           }
         }, 1200)

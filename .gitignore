@@ -9,3 +9,8 @@ gw.err
 gateway-run.log
 gateway-run.err
 design-md/
+
+.workbuddy/
+dom.txt
+probe.txt
+edge.log
