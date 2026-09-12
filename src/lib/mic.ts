@@ -5,6 +5,49 @@ import {
   type VoicePipeline,
 } from './voice-pipeline'
 
+export type SendMode = 'open' | 'vox' | 'ptt'
+
+export interface VoxSettings {
+  mode: SendMode
+  /** 0–1 analyser level threshold for VOX */
+  threshold: number
+  /** KeyboardEvent.code for PTT, e.g. Space */
+  pttKey: string
+}
+
+const LS_VOX = 'tsweb:vox'
+const DEFAULT_VOX: VoxSettings = { mode: 'open', threshold: 0.08, pttKey: 'Space' }
+/** Keep sending ~250ms after level drops (hang time) */
+const VOX_HANG_MS = 250
+
+function loadVox(): VoxSettings {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_VOX) || 'null')
+    if (!raw || typeof raw !== 'object') return DEFAULT_VOX
+    return {
+      mode: (raw.mode as SendMode) || DEFAULT_VOX.mode,
+      threshold:
+        typeof raw.threshold === 'number'
+          ? Math.min(1, Math.max(0, raw.threshold))
+          : DEFAULT_VOX.threshold,
+      pttKey: typeof raw.pttKey === 'string' && raw.pttKey ? raw.pttKey : DEFAULT_VOX.pttKey,
+    }
+  } catch {
+    return DEFAULT_VOX
+  }
+}
+
+function saveVox(s: VoxSettings) {
+  localStorage.setItem(LS_VOX, JSON.stringify(s))
+}
+
+function keyLabel(code: string) {
+  if (code === 'Space') return '空格'
+  if (code.startsWith('Key')) return code.slice(3)
+  if (code.startsWith('Digit')) return code.slice(5)
+  return code
+}
+
 export interface DeviceState {
   devices: MediaDeviceInfo[]
   selectedId: string
@@ -15,10 +58,14 @@ export interface DeviceState {
   webCodecs: boolean
   outputVolume: number
   ready: boolean
+  vox: VoxSettings
+  pttHeld: boolean
+  /** true while gate is open (VOX triggered or PTT held or open mode) */
+  gateOpen: boolean
 }
 
 export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
-  const [state, setState] = useState<DeviceState>({
+  const [state, setState] = useState<DeviceState>(() => ({
     devices: [],
     selectedId: '',
     micOn: false,
@@ -28,7 +75,10 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     webCodecs: typeof window !== 'undefined' ? webCodecsSupported() : false,
     outputVolume: 1,
     ready: false,
-  })
+    vox: loadVox(),
+    pttHeld: false,
+    gateOpen: false,
+  }))
   const streamRef = useRef<MediaStream | null>(null)
   const analyserCtxRef = useRef<AudioContext | null>(null)
   const rafRef = useRef(0)
@@ -36,6 +86,10 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
   const frameCbRef = useRef(onOpusFrame)
   frameCbRef.current = onOpusFrame
   const selectedIdRef = useRef('')
+  const voxRef = useRef<VoxSettings>(loadVox())
+  const pttHeldRef = useRef(false)
+  const lastTalkMs = useRef(0)
+  const levelRef = useRef(0)
 
   const pushIncoming = useCallback((opus: Uint8Array, clientId = 0) => {
     if (!pipelineRef.current) {
@@ -66,16 +120,35 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     await pipelineRef.current.setOutputDevice(deviceId)
   }, [])
 
+  const setVox = useCallback((patch: Partial<VoxSettings>) => {
+    voxRef.current = { ...voxRef.current, ...patch }
+    saveVox(voxRef.current)
+    setState((s) => ({ ...s, vox: voxRef.current }))
+  }, [])
+
+  const shouldSend = useCallback(() => {
+    const { mode, threshold } = voxRef.current
+    if (mode === 'open') return true
+    if (mode === 'ptt') return pttHeldRef.current
+    // vox
+    const now = performance.now()
+    if (levelRef.current >= threshold) {
+      lastTalkMs.current = now
+      return true
+    }
+    return now - lastTalkMs.current < VOX_HANG_MS
+  }, [])
+
   async function refreshDevices() {
     if (!navigator.mediaDevices?.enumerateDevices) return
     const list = await navigator.mediaDevices.enumerateDevices()
     const mics = list.filter((d) => d.kind === 'audioinput')
     setState((s) => {
       const selectedId =
-        s.selectedId &&
-        mics.some((m) => m.deviceId === s.selectedId)
+        s.selectedId && mics.some((m) => m.deviceId === s.selectedId)
           ? s.selectedId
-          : selectedIdRef.current && mics.some((m) => m.deviceId === selectedIdRef.current)
+          : selectedIdRef.current &&
+              mics.some((m) => m.deviceId === selectedIdRef.current)
             ? selectedIdRef.current
             : mics[0]?.deviceId || ''
       selectedIdRef.current = selectedId
@@ -127,7 +200,14 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
           sum += v * v
         }
         const rms = Math.sqrt(sum / data.length)
-        setState((s) => ({ ...s, level: Math.min(1, rms * 4) }))
+        const level = Math.min(1, rms * 4)
+        levelRef.current = level
+        const open = shouldSend()
+        setState((s) =>
+          s.level === level && s.gateOpen === open
+            ? s
+            : { ...s, level, gateOpen: open },
+        )
         rafRef.current = requestAnimationFrame(tick)
       }
       rafRef.current = requestAnimationFrame(tick)
@@ -135,6 +215,7 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
       if (webCodecsSupported()) {
         if (!pipelineRef.current) pipelineRef.current = createVoicePipeline()
         await pipelineRef.current.startCapture(stream, (opus) => {
+          if (!shouldSend()) return
           frameCbRef.current?.(opus)
         })
       }
@@ -169,7 +250,8 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
     pipelineRef.current?.stopCapture()
-    setState((s) => ({ ...s, micOn: false, level: 0 }))
+    pttHeldRef.current = false
+    setState((s) => ({ ...s, micOn: false, level: 0, pttHeld: false, gateOpen: false }))
   }
 
   const setMuted = useCallback((muted: boolean) => {
@@ -178,16 +260,50 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     })
   }, [])
 
-  // Auto-detect + authorize mic when the page opens
+  // PTT keyboard
+  useEffect(() => {
+    const isTyping = (el: EventTarget | null) => {
+      const t = el as HTMLElement | null
+      if (!t) return false
+      const tag = t.tagName
+      return (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        t.isContentEditable
+      )
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (voxRef.current.mode !== 'ptt') return
+      if (isTyping(e.target)) return
+      if (e.code !== voxRef.current.pttKey) return
+      e.preventDefault()
+      if (!pttHeldRef.current) {
+        pttHeldRef.current = true
+        setState((s) => ({ ...s, pttHeld: true, gateOpen: true }))
+      }
+    }
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (voxRef.current.mode !== 'ptt') return
+      if (e.code !== voxRef.current.pttKey) return
+      pttHeldRef.current = false
+      setState((s) => ({ ...s, pttHeld: false, gateOpen: false }))
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     const boot = async () => {
       await refreshDevices()
       if (cancelled) return
-      // Unlock labels + start pipeline without a button click
       await requestMic(selectedIdRef.current || undefined)
       if (cancelled) return
-      // Some browsers need a second pass after permission
       await refreshDevices()
     }
     void boot()
@@ -219,5 +335,7 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     setOutputDevice,
     setClientVolume,
     setMuted,
+    setVox,
+    keyLabel,
   }
 }

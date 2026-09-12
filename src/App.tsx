@@ -832,6 +832,83 @@ export default function App() {
                   {mic.state.micOn ? '关麦' : '开麦'}
                 </button>
               </div>
+
+              <label>
+                发送方式
+                <select
+                  value={mic.state.vox.mode}
+                  onChange={(e) =>
+                    mic.setVox({ mode: e.target.value as 'open' | 'vox' | 'ptt' })
+                  }
+                >
+                  <option value="open">常开（一直上行）</option>
+                  <option value="vox">声控 VOX</option>
+                  <option value="ptt">按键 PTT</option>
+                </select>
+              </label>
+
+              {mic.state.vox.mode === 'vox' && (
+                <label>
+                  VOX 阈值 {Math.round(mic.state.vox.threshold * 100)}%
+                  <input
+                    type="range"
+                    min={1}
+                    max={60}
+                    value={Math.round(mic.state.vox.threshold * 100)}
+                    onChange={(e) =>
+                      mic.setVox({ threshold: Number(e.target.value) / 100 })
+                    }
+                  />
+                  <div className="meter" style={{ marginTop: 4 }}>
+                    <span
+                      style={{
+                        width: `${Math.round((muted ? 0 : mic.state.level) * 100)}%`,
+                        background:
+                          mic.state.gateOpen && !muted
+                            ? 'var(--accent)'
+                            : undefined,
+                      }}
+                    />
+                  </div>
+                  <span className="hint">
+                    {mic.state.gateOpen && !muted ? '说话中（已上行）' : '低于阈值，未上行'}
+                  </span>
+                </label>
+              )}
+
+              {mic.state.vox.mode === 'ptt' && (
+                <label>
+                  PTT 按键
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const onKey = (e: KeyboardEvent) => {
+                        e.preventDefault()
+                        mic.setVox({ pttKey: e.code })
+                        window.removeEventListener('keydown', onKey, true)
+                      }
+                      window.addEventListener('keydown', onKey, true)
+                    }}
+                  >
+                    {mic.state.vox.pttKey === 'Space'
+                      ? '空格'
+                      : mic.state.vox.pttKey}
+                    （点击后按新键）
+                  </button>
+                  <span className="hint">
+                    按住 {mic.state.vox.pttKey === 'Space' ? '空格' : mic.state.vox.pttKey}{' '}
+                    说话
+                    {mic.state.pttHeld ? ' · 按住中' : ''}
+                  </span>
+                </label>
+              )}
+
+              <div className="hint">
+                {mic.state.vox.mode === 'open' && '常开：麦克风一直编码上行'}
+                {mic.state.vox.mode === 'vox' && 'VOX：电平超过阈值才发送'}
+                {mic.state.vox.mode === 'ptt' && 'PTT：按住快捷键才发送'}
+              </div>
+
               <label>
                 总音量 {Math.round(mic.state.outputVolume * 100)}%
                 <input
