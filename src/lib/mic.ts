@@ -83,7 +83,7 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
   const analyserCtxRef = useRef<AudioContext | null>(null)
   const rafRef = useRef(0)
   const pipelineRef = useRef<VoicePipeline | null>(null)
-  const fxRef = useRef({ aec: true, agc: true })
+  const fxRef = useRef({ aec: true, agc: true, noise: true })
   const frameCbRef = useRef(onOpusFrame)
   frameCbRef.current = onOpusFrame
   const selectedIdRef = useRef('')
@@ -122,7 +122,7 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     await pipelineRef.current.setOutputDevice(deviceId)
   }, [])
 
-  const setAudioFx = (fx: { aec: boolean; agc: boolean }) => {
+  const setAudioFx = (fx: { aec: boolean; agc: boolean; noise?: boolean }) => {
     fxRef.current = { ...fxRef.current, ...fx }
     pipelineRef.current?.setAudioFx(fxRef.current)
     // 采集已开启时重启（新 constraints 生效，如关闭浏览器原生 AEC）

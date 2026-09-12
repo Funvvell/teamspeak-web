@@ -44,7 +44,7 @@ export default tseslint.config(
   },
   {
     // 音频 worklet 专用全局
-    files: ['public/capture-processor.js', 'public/aec-processor.js'],
+    files: ['public/capture-processor.js', 'public/aec-processor.js', 'public/rnnoise-worklet.js'],
     languageOptions: {
       globals: {
         AudioWorkletProcessor: 'readonly',

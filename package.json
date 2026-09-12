@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@honeybbq/teamspeak-client": "^0.2.3",
+    "@shiguredo/rnnoise-wasm": "^2025.1.5",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "reflex-aec": "^1.1.1",

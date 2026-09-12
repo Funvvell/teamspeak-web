@@ -1029,7 +1029,7 @@ export default function App() {
     localStorage.setItem(LS_AEC, '1')
     localStorage.setItem(LS_AGC, '1')
     localStorage.setItem(LS_DESKTOP, '1')
-    mic.setAudioFx({ aec: true, agc: true })
+    mic.setAudioFx({ aec: true, agc: true, noise: true })
     setSinkId('')
     applySinkId('')
     void mic.setOutputDevice('')
@@ -1060,6 +1060,7 @@ export default function App() {
     setRnnoiseOn((v) => {
       const next = !v
       localStorage.setItem(LS_RNN, next ? '1' : '0')
+      mic.setAudioFx({ aec: aecOn, agc: agcOn, noise: next })
       return next
     })
   }

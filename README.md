@@ -22,7 +22,7 @@ TeamSpeak Web 通过一个轻量的 **Node.js WebSocket 网关**桥接 TeamSpeak
 
 | 类别 | 能力 |
 |------|------|
-| 🔊 语音 | WebCodecs Opus 编解码、声控 VOX / 常开 / 按键 PTT（默认空格）、**软件回声消除（FDAF+NLMS，HOP 128 ≈ 2.7ms 低延迟）**、**自动增益（DynamicsCompressor）**、麦克风自动识别与电平、输出设备选择 |
+| 🔊 语音 | WebCodecs Opus 编解码、声控 VOX / 常开 / 按键 PTT（默认空格）、**软件回声消除（FDAF+NLMS，HOP 128 ≈ 2.7ms 低延迟）**、**自动增益（DynamicsCompressor）**、**AI 降噪（RNNoise，10ms 帧实时抑制稳态噪声）**、麦克风自动识别与电平、输出设备选择 |
 | 💬 聊天 | 频道消息 / 服务器消息 / 私聊、事件流（进入 / 离开 / 移动 / 连接）、系统通知音效、桌面通知 |
 | 🏷️ 频道 | 频道树按 `channel_order` 排序、可折叠、双击加入、游客接待等权限约束 |
 | 👥 成员 | 说话 / 闭麦 / 仅收听三态图标、国家旗、按成员音量记忆（0–150%）、右键菜单：私聊 / Poke / 耳语 / 复制昵称 / 快捷音量 |
@@ -316,6 +316,7 @@ npm run smoke:ts3 -- <ts-host> [port]
 - **[EchoSixHIYA/WebSpeak-client-for-TeamSpeak](https://github.com/EchoSixHIYA/WebSpeak-client-for-TeamSpeak)**（AGPL-3.0）—— Web 语音客户端的另一实现参考
 - **[@honeybbq/teamspeak-client](https://www.npmjs.com/package/@honeybbq/teamspeak-client)**（MIT）—— 本项目使用的真实 TS3 客户端协议库
 - **[reflex-aec](https://github.com/XINMurat/reflex-aec)**（MIT）—— 浏览器端 FDAF+NLMS 回声消除算法，本项目软件 AEC 处理链参考其实现
+- **[@shiguredo/rnnoise-wasm](https://github.com/shiguredo/rnnoise-wasm)**（Apache-2.0，内核为 Xiph RNNoise）—— 本项目 AI 降噪的 WebAssembly 实现
 
 ---
 

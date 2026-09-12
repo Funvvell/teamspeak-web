@@ -86,7 +86,7 @@ export interface VoicePipeline {
   setClientVolume(clientId: number, v: number): void
   getClientVolume(clientId: number): number
   /** 切换回声消除（软件 AEC）/ 自动增益（重启采集生效） */
-  setAudioFx(fx: { aec: boolean; agc: boolean }): void
+  setAudioFx(fx: { aec: boolean; agc: boolean; noise?: boolean }): void
   setOutputDevice(deviceId: string): Promise<void>
   beep(freq?: number, durationSec?: number, gain?: number): void
   close(): void
@@ -110,6 +110,8 @@ export function createVoicePipeline(): VoicePipeline {
   let sinkId = ''
   let fxAec = true
   let fxAgc = true
+  let fxNoise = true
+  let rnnoiseNode: AudioWorkletNode | null = null
 
   function ensureCtx(): AudioContext {
     if (!audioCtx || audioCtx.state === 'closed') {
@@ -247,6 +249,7 @@ export function createVoicePipeline(): VoicePipeline {
     mediaStream = stream
     const ctx = ensureCtx()
     await ctx.audioWorklet.addModule('/aec-processor.js')
+    await ctx.audioWorklet.addModule('/rnnoise-worklet.js')
     await ctx.audioWorklet.addModule('/capture-processor.js')
     const source = ctx.createMediaStreamSource(stream)
     workletNode = new AudioWorkletNode(ctx, 'capture-processor')
@@ -256,9 +259,10 @@ export function createVoicePipeline(): VoicePipeline {
       pcmLength += pcm.length
       flushPcm()
     }
-    // —— 低延迟音频处理链：软件 AEC（回声消除）→ AGC（自动增益）→ 采集 ——
+    // —— 低延迟音频处理链：软件 AEC（回声消除）→ RNNoise 降噪 → AGC（自动增益）→ 采集 ——
     // AEC 为 FDAF+NLMS 算法（reflex-aec，MIT），参考信号由 masterGain 旁路接入
     // inputs[1]：同一 AudioContext 内样本级对齐，HOP=128 ≈ 2.7ms@48k，无额外缓冲
+    // 降噪为 RNNoise（@shiguredo/rnnoise-wasm，Apache-2.0）：480 帧 10ms 处理，输出对齐后块
     // AGC 用 Web Audio DynamicsCompressorNode（原生节点，零额外延迟）
     let head: AudioNode = source
     if (fxAec && masterGain) {
@@ -281,7 +285,20 @@ export function createVoicePipeline(): VoicePipeline {
       head.connect(agc)
       head = agc
     }
-    head.connect(workletNode)
+    // RNNoise 节点恒在链中（wasm 懒加载）：降噪开时 init，关时透传，开关即时生效不重建图
+    rnnoiseNode = new AudioWorkletNode(ctx, 'rnnoise-processor')
+    rnnoiseNode.port.onmessage = (ev) => {
+      const d = ev.data
+      if (d && d.type === 'error') console.warn('[voice] rnnoise init error', d.message)
+      if (d && d.type === 'ready') rnnoiseReady = true
+    }
+    head.connect(rnnoiseNode)
+    rnnoiseNode.connect(workletNode)
+    if (fxNoise) {
+      void initRnnoise()
+    } else {
+      rnnoiseNode.port.postMessage({ type: 'set-denoise', enabled: false })
+    }
     // Keep graph alive without feedback to speakers
     const mute = ctx.createGain()
     mute.gain.value = 0
@@ -293,6 +310,10 @@ export function createVoicePipeline(): VoicePipeline {
     workletNode?.port.close()
     workletNode?.disconnect()
     workletNode = null
+    rnnoiseNode?.port.close()
+    rnnoiseNode?.disconnect()
+    rnnoiseNode = null
+    rnnoiseReady = false
     mediaStream?.getTracks().forEach((t) => t.stop())
     mediaStream = null
     if (encoder && encoder.state !== 'closed') {
@@ -307,9 +328,37 @@ export function createVoicePipeline(): VoicePipeline {
     pcmLength = 0
   }
 
-  function setAudioFx(fx: { aec: boolean; agc: boolean }) {
+  function setAudioFx(fx: { aec: boolean; agc: boolean; noise?: boolean }) {
     fxAec = fx.aec
     fxAgc = fx.agc
+    if (typeof fx.noise === 'boolean') {
+      fxNoise = fx.noise
+      // 降噪开关即时生效（无需重启采集）：未初始化则异步拉起 wasm，期间自动透传
+      if (rnnoiseNode) {
+        rnnoiseNode.port.postMessage({ type: 'set-denoise', enabled: fxNoise })
+        if (fxNoise && !rnnoiseReady) void initRnnoise()
+      }
+    }
+  }
+
+  let rnnoiseReady = false
+
+  async function initRnnoise() {
+    try {
+      if (!rnnoiseNode || rnnoiseReady) return
+      // 主线程拉取并编译 wasm（~3.6MB，仅降噪开启时一次性加载），Module 可转移进 worklet
+      const res = await fetch('/rnnoise.wasm')
+      if (!res.ok) throw new Error('fetch rnnoise.wasm failed: ' + res.status)
+      const bytes = await res.arrayBuffer()
+      const module = await WebAssembly.compile(bytes)
+      if (!rnnoiseNode || rnnoiseReady) return
+      // WebAssembly.Module 支持结构化克隆，直接发送（无需 transfer 列表）
+      rnnoiseNode.port.postMessage({ type: 'init', module })
+    } catch (err) {
+      console.warn('[voice] rnnoise init failed, 降噪保持关闭', err)
+      fxNoise = false
+      if (rnnoiseNode) rnnoiseNode.port.postMessage({ type: 'set-denoise', enabled: false })
+    }
   }
 
   function pushIncoming(opus: Uint8Array, clientId = 0) {
