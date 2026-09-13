@@ -39,7 +39,7 @@ import {
 import { BellIcon, GlobeIcon, HeadphoneIcon, LockIcon, MicIcon, MusicIcon, PersonIcon, SparklesIcon, WaveBars, ZapIcon } from './components/icons'
 import { Segmented, SettingRow, Switch } from './components/controls'
 import { ChannelListView } from './components/ChannelListView'
-import { WavesBackground } from './components/WavesBackground'
+import { BlinkingSquares } from './components/BlinkingSquares'
 
 interface ChatMsg {
   from: string
@@ -1170,7 +1170,7 @@ export default function App() {
 
     return (
       <div className="login-page">
-        <WavesBackground />
+        <BlinkingSquares />
         <div className="login-center">
           <div className="login-hero">
             <div className="brand login-brand-top">
@@ -1412,7 +1412,33 @@ export default function App() {
             />
             <kbd>Ctrl K</kbd>
           </div>
-                    {musicBotUrl && (
+          <button
+            type="button"
+            className={`top-icon${soundsOn ? '' : ' off'}`}
+            title={soundsOn ? '通知音效开' : '通知音效关'}
+            onClick={() => {
+              setSoundsOn((v) => {
+                setSoundsEnabled(!v)
+                return !v
+              })
+            }}
+          >
+            <BellIcon />
+          </button>
+<button
+            type="button"
+            className={`top-icon${soundsOn ? '' : ' off'}`}
+            title={soundsOn ? '通知音效开' : '通知音效关'}
+            onClick={() => {
+              setSoundsOn((v) => {
+                setSoundsEnabled(!v)
+                return !v
+              })
+            }}
+          >
+            <BellIcon />
+          </button>
+          {musicBotUrl && (
             <button
               type="button"
               className="top-icon music-top"
@@ -1801,7 +1827,11 @@ export default function App() {
                       <div className="empty">还没有消息，来说第一句</div>
                     )}
                     {active?.messages.map((m, i) => (
-                      <div key={`${m.ts}-${i}`} className="msg">
+                      <div
+                        key={`${m.ts}-${i}`}
+                        className="msg"
+                        style={{ animationDelay: `${Math.min(i * 45, 450)}ms` }}
+                      >
                         <span className="from">{m.from}</span>
                         {m.whisper && <span className="badge connecting">耳语</span>}{' '}
                         <span>{m.text}</span>
@@ -2322,7 +2352,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <WavesBackground />
+      <BlinkingSquares />
       {view === 'settings' ? (
         renderSettings()
       ) : connected ? (
