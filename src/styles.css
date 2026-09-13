@@ -3054,6 +3054,84 @@ input[type="checkbox"] {
     font-size: 11px;
     font-weight: 700;
   }
+
+  /* —— 移动端顶部栏精简：防溢出 —— */
+  .topbar {
+    gap: 6px;
+    padding: 0 10px;
+    overflow-x: auto;
+  }
+  .topbar .brand {
+    flex-shrink: 0;
+  }
+  .topbar .brand span {
+    display: none;
+  }
+  .topbar .tabbar {
+    max-width: 26vw;
+    margin-left: 4px;
+    flex-shrink: 1;
+  }
+  .topbar .top-search {
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 60px;
+  }
+  .top-search kbd {
+    display: none;
+  }
+  .topbar .user-chip {
+    max-width: 96px;
+  }
+  .topbar .user-chip .avatar {
+    flex-shrink: 0;
+  }
+  .topbar .user-chip > span:not(.avatar) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* —— 移动端登录页：防横向溢出 + 垂直可滚动 —— */
+  .login-page {
+    overflow-y: auto;
+    overflow-x: hidden;
+    align-items: start;
+    padding: 24px 14px 40px;
+  }
+  .login-card {
+    padding: 24px 18px 22px;
+    gap: 12px;
+  }
+  .login-card input,
+  .login-card select {
+    min-width: 0;
+  }
+  .login-card .mic-check {
+    align-items: flex-start;
+  }
+  .login-card .mic-check-state {
+    min-width: 0;
+    flex: 1;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+  .login-card .mic-check .icon-btn {
+    flex-shrink: 0;
+  }
+  .login-card .field-error {
+    overflow-wrap: anywhere;
+  }
+  .login-card .login-foot > div {
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+  }
+  .recent-list li .recent-addr {
+    flex-shrink: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
