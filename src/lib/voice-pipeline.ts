@@ -87,6 +87,8 @@ export interface VoicePipeline {
   getClientVolume(clientId: number): number
   /** 切换回声消除（软件 AEC）/ 自动增益（重启采集生效） */
   setAudioFx(fx: { aec: boolean; agc: boolean; noise?: boolean }): void
+  /** RNNoise VAD（0~1 语音概率；降噪未就绪时返回 -1） */
+  getVad(): number
   setOutputDevice(deviceId: string): Promise<void>
   beep(freq?: number, durationSec?: number, gain?: number): void
   close(): void
@@ -291,6 +293,7 @@ export function createVoicePipeline(): VoicePipeline {
       const d = ev.data
       if (d && d.type === 'error') console.warn('[voice] rnnoise init error', d.message)
       if (d && d.type === 'ready') rnnoiseReady = true
+      if (d && typeof d.vad === 'number') vadRef = d.vad
     }
     head.connect(rnnoiseNode)
     rnnoiseNode.connect(workletNode)
@@ -341,7 +344,12 @@ export function createVoicePipeline(): VoicePipeline {
     }
   }
 
+  function getVad() {
+    return rnnoiseReady ? vadRef : -1
+  }
+
   let rnnoiseReady = false
+  let vadRef = 0
 
   async function initRnnoise() {
     try {
@@ -442,6 +450,7 @@ export function createVoicePipeline(): VoicePipeline {
     startCapture,
     stopCapture,
     setAudioFx,
+    getVad,
     pushIncoming,
     setOutputVolume,
     setClientVolume,

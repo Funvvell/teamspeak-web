@@ -141,9 +141,12 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     const { mode, threshold } = voxRef.current
     if (mode === 'open') return true
     if (mode === 'ptt') return pttHeldRef.current
-    // vox
+    // vox：RNNoise VAD（0~1 语音概率）驱动 + RMS 响度兜底——
+    // VAD 就绪时用深度模型识别人声（抗键盘/风扇误触发），未就绪回退响度阈值
     const now = performance.now()
-    if (levelRef.current >= threshold) {
+    const vad = pipelineRef.current?.getVad?.() ?? -1
+    const speaking = vad >= 0 ? vad >= 0.5 || levelRef.current >= threshold : levelRef.current >= threshold
+    if (speaking) {
       lastTalkMs.current = now
       return true
     }
