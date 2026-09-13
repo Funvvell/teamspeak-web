@@ -32,6 +32,7 @@ TeamSpeak Web 通过一个轻量的 **Node.js WebSocket 网关**桥接 TeamSpeak
 | 🖥️ 多开 | 顶栏多服务器标签，仅活动标签上行麦克风 |
 | 🔐 安全 | WS 帧载荷上限、并发连接数上限、可选的网关访问令牌（`GATEWAY_TOKEN`） |
 | 🛡️ 健壮 | 断线自动重连、防重连风暴、mock 定时器防泄漏、二进制帧防御、ESLint + Vitest 质量门 |
+| 🎵 音乐 | **音乐机器人 iframe 嵌入（TSMusicBot）**：主界面顶栏 🎵 按钮全屏面板内嵌机器人 Web 控制台（搜索 / 点歌 / 播放 / 队列 / 歌词 / 多音源），会话独立互不干扰 |
 
 ---
 
@@ -229,6 +230,7 @@ server {
 | `MAX_CONNECTIONS` | `64` | 并发 WS 连接上限，防资源耗尽 |
 | `TS_CONNECT_TIMEOUT_MS` | `45000` | TS3 握手超时（毫秒） |
 | `TS_WELCOME_WAIT_MS` | `1500` | 连接后等待欢迎消息的缓冲（毫秒） |
+| `MUSIC_BOT_URL` | 空 | 音乐机器人（TSMusicBot）Web 地址，如 `http://127.0.0.1:3000`；非空时主界面顶栏显示 🎵 音乐按钮，面板内嵌该地址 |
 
 Windows PowerShell 设置方式：
 
@@ -237,6 +239,48 @@ $env:PROTOCOL = "ts3"
 $env:PORT = "8080"
 npm start
 ```
+
+## 🎵 音乐机器人嵌入（TSMusicBot）
+
+主界面顶栏的 🎵 按钮打开全屏音乐面板，面板内嵌 [TSMusicBot](https://github.com/ZHANGTIANYAO1/teamspeak-music-bot) 的 Web 控制台（Vue 界面）：多平台搜索（网易云 / QQ / 酷狗 / B 站 / YouTube / Jellyfin / Spotify）、点歌、播放控制、队列、歌词、音质、多机器人管理——机器人的一切能力原样可用，无需二次开发。
+
+```text
+浏览器 ──HTTP──> 网关(:8080) ──静态/WS──> 团队语音客户端
+        └─ iframe ──> TSMusicBot(:3000) ──TS3 客户端协议──> TeamSpeak 服务器
+                            （真实客户端，UDP 推流 Opus 音乐到频道）
+```
+
+### 部署步骤
+
+1. 部署 [TSMusicBot](https://github.com/ZHANGTIANYAO1/teamspeak-music-bot)（Node 22 LTS 或 Docker，端口 3000；内置 FFmpeg 与各音源），首次访问初始化管理员账号，创建并启动一个连到你的 TS 服务器（`ts.example.com`、端口 `9987`、昵称 ≥ 3 字符）的机器人。
+2. **允许嵌入**：TSMusicBot 默认带点击劫持防护（`X-Frame-Options: DENY`）。部署副本需放开：编辑 `src/web/server.ts` 的安全头中间件，将其改为 `ALLOWALL` / `frame-ancestors *`，或直接设置环境变量 `ALLOW_IFRAME=1`（本项目已 fork 支持）后重启。
+3. 网关设置 `MUSIC_BOT_URL` 并重启：
+
+```powershell
+# PowerShell（Windows）
+$env:MUSIC_BOT_URL = "http://127.0.0.1:3000"
+npm start
+```
+
+```bash
+# Linux / Docker
+MUSIC_BOT_URL=http://127.0.0.1:3000 npm start
+```
+
+> **地址注意**：`MUSIC_BOT_URL` 必须填用户浏览器能直接访问的地址。同一台机器部署填 `127.0.0.1`；跨机 / 公网部署填服务器 IP 或域名（如 `http://ts.example.com:3000`）。
+
+4. 刷新 Web 客户端 → 连接服务器 → 顶栏 🎵 → 在嵌入的控制台内登录机器人账号（独立会话，与 Web 客户端互不干扰）→ 搜索点歌，频道内所有人即可听到音乐。
+
+### 常见问题
+
+| 现象 | 处理 |
+|------|------|
+| 顶栏没有 🎵 按钮 | 网关未设置 `MUSIC_BOT_URL` 或未重启 |
+| 面板提示「音乐机器人未配置」 | 同左，检查环境变量与网关日志 |
+| iframe 空白 / 拒绝连接 | 机器人未启动；`MUSIC_BOT_URL` 地址浏览器打不开；地址不能填 `localhost`（会指向访客自己的电脑） |
+| iframe 显示「拒绝连接 / refused to connect」 | 机器人未放开 iframe 防护（`ALLOW_IFRAME=1`） |
+| 登录 401 | 在机器人 WebUI（直接访问 `MUSIC_BOT_URL`）确认账号密码 |
+| 搜索无结果 | 音源需在机器人 WebUI 扫码登录 / 被限流 |
 
 ### 安全注意
 
@@ -320,6 +364,7 @@ npm run smoke:ts3 -- <ts-host> [port]
 - **[@honeybbq/teamspeak-client](https://www.npmjs.com/package/@honeybbq/teamspeak-client)**（MIT）—— 本项目使用的真实 TS3 客户端协议库
 - **[reflex-aec](https://github.com/XINMurat/reflex-aec)**（MIT）—— 浏览器端 FDAF+NLMS 回声消除算法，本项目软件 AEC 处理链参考其实现
 - **[@shiguredo/rnnoise-wasm](https://github.com/shiguredo/rnnoise-wasm)**（Apache-2.0，内核为 Xiph RNNoise）—— 本项目 AI 降噪的 WebAssembly 实现
+- **[teamspeak-music-bot](https://github.com/ZHANGTIANYAO1/teamspeak-music-bot)**（MIT）—— 音乐机器人（TSMusicBot），本项目以 iframe 面板嵌入其 Web 控制台
 
 ---
 

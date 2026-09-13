@@ -36,7 +36,7 @@ import {
   type LogItem,
   type RecentServer,
 } from './lib/utils'
-import { BellIcon, GlobeIcon, HeadphoneIcon, MicIcon, PersonIcon, WaveBars } from './components/icons'
+import { BellIcon, GlobeIcon, HeadphoneIcon, MicIcon, MusicIcon, PersonIcon, WaveBars } from './components/icons'
 import { Segmented, SettingRow, Switch } from './components/controls'
 import { ChannelListView } from './components/ChannelListView'
 
@@ -113,7 +113,7 @@ function emptyTab(partial?: Partial<ConnectionTab>): ConnectionTab {
   }
 }
 
-type AppView = 'login' | 'main' | 'settings'
+type AppView = 'login' | 'main' | 'settings' | 'music'
 type SettingsNav = 'account' | 'audio' | 'activation' | 'notify' | 'theme' | 'network'
 
 // 模块级小组件：避免在 App 内部定义导致每次渲染重挂载（输入框失焦）
@@ -137,6 +137,7 @@ export default function App() {
   })
   const [activeId, setActiveId] = useState(() => '')
   const [view, setView] = useState<AppView>('login')
+  const [musicBotUrl, setMusicBotUrl] = useState('')
   const [settingsNav, setSettingsNav] = useState<SettingsNav>('audio')
   const [draft, setDraft] = useState('')
   const [muted, setMuted] = useState(false)
@@ -230,6 +231,13 @@ export default function App() {
   const active = tabs.find((t) => t.id === activeId) || tabs[0]
 
   // 登录页地址输入框与 active 配置同步（config 启动填充后自动带上）
+  useEffect(() => {
+    fetch('/config')
+      .then((r) => r.json())
+      .then((c) => setMusicBotUrl((c as { musicBotUrl?: string }).musicBotUrl || ''))
+      .catch(() => undefined)
+  }, [])
+
   useEffect(() => {
     if (!active?.host) return
     setAddressInput((cur) => {
@@ -1396,6 +1404,14 @@ export default function App() {
           </div>
           <button
             type="button"
+            className="top-icon music-top"
+            title="音乐机器人"
+            onClick={() => setView('music')}
+          >
+            <MusicIcon />
+          </button>
+          <button
+            type="button"
             className={`top-icon${soundsOn ? '' : ' off'}`}
             title={soundsOn ? '通知音效开' : '通知音效关'}
             onClick={() => {
@@ -2318,6 +2334,34 @@ export default function App() {
       </div>
       {view === 'settings' ? (
         renderSettings()
+      ) : view === 'music' && connected ? (
+        <div className="music-overlay">
+          <div className="music-frame-wrap">
+            <div className="music-frame-head">
+              <span className="music-frame-title">
+                <span className="music-title-icon"><MusicIcon /></span>
+                音乐机器人
+              </span>
+              <span className="music-frame-sub">TSMusicBot Web 控制台</span>
+              <button type="button" className="icon-btn" onClick={() => setView('main')} title="关闭">
+                ×
+              </button>
+            </div>
+            {musicBotUrl ? (
+              <iframe
+                className="music-frame"
+                src={musicBotUrl}
+                title="音乐机器人"
+                allow="microphone; autoplay; clipboard-write"
+              />
+            ) : (
+              <div className="music-frame-empty">
+                <p>音乐机器人未配置</p>
+                <p className="dim">在网关环境变量设置 <code>MUSIC_BOT_URL</code>（如 http://127.0.0.1:3000）并部署 TSMusicBot 后刷新。</p>
+              </div>
+            )}
+          </div>
+        </div>
       ) : connected ? (
         renderMain()
       ) : (

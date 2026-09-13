@@ -81,6 +81,7 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) {
         defaultNickname: DEFAULT_NICKNAME,
         authRequired: Boolean(GATEWAY_TOKEN),
         protocol: PROTOCOL,
+        musicBotUrl: (process.env.MUSIC_BOT_URL || '').trim(),
       }),
     )
     return

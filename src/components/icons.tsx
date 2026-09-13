@@ -132,3 +132,25 @@ export function WaveBars({ active, tall }: { active: boolean; tall?: boolean }) 
     </span>
   )
 }
+
+
+/** Music note — opens the music bot panel */
+export function MusicIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 18V5l10-2v13" />
+      <circle cx="6.5" cy="18" r="2.5" />
+      <circle cx="16.5" cy="16" r="2.5" />
+    </svg>
+  )
+}
