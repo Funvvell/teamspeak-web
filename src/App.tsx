@@ -1167,10 +1167,10 @@ export default function App() {
     const nickError = fieldErrors.nickname
 
     const features = [
-      { icon: <LockIcon />, title: '端到端加密', desc: 'TS3 加密握手 · 频道流量 ECDH + EAX 加密' },
-      { icon: <WaveBars active />, title: '声控 VOX · 按键 PTT', desc: 'RNNoise 智能门控，抗键盘与风扇误触发' },
-      { icon: <SparklesIcon />, title: 'AI 降噪', desc: 'RNNoise 实时抑制稳态噪声，语音更干净' },
-      { icon: <ZapIcon />, title: '低延迟语音', desc: 'WebCodecs Opus 编解码 · 软件 AEC 回声消除' },
+      { icon: <LockIcon />, title: '端到端加密', desc: '全程加密，偷听没门' },
+      { icon: <WaveBars active />, title: '声控 VOX · 按键 PTT', desc: '声控说话，键盘声不掺和' },
+      { icon: <SparklesIcon />, title: 'AI 降噪', desc: '风扇嗡嗡，它替你挡' },
+      { icon: <ZapIcon />, title: '低延迟语音', desc: 'Opus 编码，延迟压到最低' },
     ]
 
     return (
@@ -1183,7 +1183,7 @@ export default function App() {
               <span>TeamSpeak Web</span>
             </div>
             <h1 className="hero-h1">TeamSpeak Web</h1>
-            <p className="hero-sub">浏览器语音客户端 · 免安装 · 即开即聊</p>
+            <p className="hero-sub">打开浏览器就能聊，不用装</p>
             <div className="hero-features">
               {features.map((f) => (
                 <div
@@ -1198,14 +1198,14 @@ export default function App() {
                 </div>
               ))}
             </div>
-            <p className="hero-note">多端可用 · 音乐机器人一键接入 · 轻量免安装</p>
+            <p className="hero-note">手机电脑通用 · 一键接音乐机器人</p>
           </div>
           <Card className="login-card-brutal border-3 shadow-brutal rounded-brutal bg-brutal-bg">
             <h2>登录</h2>
             <p className="login-sub">
               {connecting
                 ? `正在连接 ${active?.host || ''}:${active?.port || ''}`
-                : '连接你的 TeamSpeak 服务器，开始语音协作。'}
+                : '填个地址就开聊，三秒上线。'}
             </p>
 
             <label className={`field${hostError ? ' invalid' : ''}`}>
@@ -1306,7 +1306,7 @@ export default function App() {
               loading={connecting}
               onClick={connectFromLogin}
             >
-              {connecting ? '正在连接…' : lastFailed ? '重新连接 →' : '连接服务器 →'}
+              {connecting ? '正在连…' : lastFailed ? '再试一次 →' : '开聊 →'}
             </Button>
 
             <div className="login-or"><span>或</span></div>
@@ -1317,7 +1317,7 @@ export default function App() {
               disabled={connecting}
               onClick={connectAsGuest}
             >
-              以游客身份连接
+              不注册，直接进
             </Button>
 
             <div className="recent-block">
@@ -1348,8 +1348,8 @@ export default function App() {
             </div>
           </Card>
           <div className="login-foot">
-            <div className="login-tagline">端到端加密 · 声控 VOX 与按键 PTT 双模式 · AI 降噪</div>
-            <div className="brand-foot">TeamSpeak Web · 浏览器语音客户端</div>
+            <div className="login-tagline">加密 · 声控 · 降噪，一个不少</div>
+            <div className="brand-foot">TeamSpeak Web · 浏览器里的语音房</div>
           </div>
         </div>
       </div>
@@ -1822,7 +1822,7 @@ const renderMain = () => {
                     }}
                   >
                     {!active?.messages.length && (
-                      <div className="empty">还没有消息，来说第一句</div>
+                      <div className="empty">还没人说话，你先来一句</div>
                     )}
                     {active?.messages.map((m, i) => (
                       <div
@@ -1896,7 +1896,7 @@ const renderMain = () => {
                         handleSend()
                       }
                     }}
-                    placeholder={connected ? '输入消息，Enter 发送' : '请先连接'}
+                    placeholder={connected ? '说点啥，Enter 发出去' : '先连上再说'}
                     disabled={!connected}
                     className="flex-1 h-10"
                   />
@@ -2068,11 +2068,11 @@ const renderMain = () => {
     ]
     const titles: Record<SettingsNav, { title: string; sub: string }> = {
       account: { title: '帐号与身份', sub: '昵称与身份信息，保存在本机' },
-      audio: { title: '音频与语音', sub: '设备、发送方式与音量，改动即时生效并保存在本机' },
-      activation: { title: '语音激活', sub: '控制麦克风何时上行，改动即时生效' },
-      notify: { title: '通知', sub: '通知音效与桌面通知' },
-      theme: { title: '界面与主题', sub: '外观与显示偏好' },
-      network: { title: '网络与网关', sub: '网关地址、认证与端口' },
+      audio: { title: '音频与语音', sub: '设备音量在这调，改完就生效' },
+      activation: { title: '语音激活', sub: '啥时候开口，你说了算' },
+      notify: { title: '通知', sub: '来消息了，要不要吱一声' },
+      theme: { title: '界面与主题', sub: '界面怎么顺眼怎么来' },
+      network: { title: '网络与网关', sub: '网关和端口，都在这' },
     }
     const t = titles[settingsNav]
 
@@ -2351,6 +2351,7 @@ const renderMain = () => {
 
   return (
     <div className="app">
+      <div className="noise-overlay" aria-hidden="true" />
       <BlinkingSquares />
       {view === 'settings' ? (
         renderSettings()

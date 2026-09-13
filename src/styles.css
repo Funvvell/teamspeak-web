@@ -1,59 +1,59 @@
 /* TeamSpeak Web — 高保真界面稿还原
    Tokens per the 高保真 mockup: pale blue-tinted canvas,
-   white surfaces, #0066CC accent, #2E9E5B talking green */
+   white surfaces, #d93a1e accent, #2E9E5B talking green */
 
 :root {
   color-scheme: light;
 
   /* canvas */
-  --bg: #f1f4f7;
-  --bg-deep: #e7edf3;
+  --bg: #f7f3ec;
+  --bg-deep: #efe7da;
 
   /* surfaces */
-  --panel-solid: #ffffff;
-  --panel: rgba(255, 255, 255, 0.36);
-  --panel-2: rgba(255, 255, 255, 0.3);
-  --panel-3: rgba(255, 255, 255, 0.58);
-  --glass-input: rgba(255, 255, 255, 0.46);
-  --glass-hi: inset 0 1px 0 rgba(255, 255, 255, 0.92), inset 0 0 0 0.5px rgba(255, 255, 255, 0.3);
+  --panel-solid: #fffdf8;
+  --panel: rgba(255, 253, 248, 0.4);
+  --panel-2: rgba(255, 253, 248, 0.34);
+  --panel-3: rgba(255, 253, 248, 0.62);
+  --glass-input: rgba(255, 253, 248, 0.5);
+  --glass-hi: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 0.5px rgba(255, 255, 255, 0.35);
   --blur: 18px;
   --blur-lg: 28px;
   --blur-xl: 38px;
 
   /* hairlines */
-  --border: rgba(49, 79, 108, 0.12);
-  --border-soft: rgba(49, 79, 108, 0.07);
-  --border-strong: rgba(49, 79, 108, 0.18);
+  --border: rgba(28, 28, 25, 0.12);
+  --border-soft: rgba(28, 28, 25, 0.07);
+  --border-strong: rgba(28, 28, 25, 0.18);
 
   /* text — WCAG AA against white surfaces */
-  --text: #2a3440;
-  --muted: #4a5a68;
-  --dim: #647487;
-  --faint: #8b99a6;
+  --text: #1e1e1a;
+  --muted: #4a463e;
+  --dim: #6e6a60;
+  --faint: #9a958a;
 
   /* semantic — low-saturation mist blue / teal */
-  --accent: #4f86c2;
-  --icon: #1f7be6;
-  --icon-strong: #1668dc;
-  --accent-hover: #4a94d6;
-  --accent-ink: #3f6fa0;
-  --accent-soft: rgba(66, 130, 188, 0.14);
-  --ok: #2fa06a;
-  --ok-soft: rgba(110, 169, 140, 0.12);
+  --accent: #e04a2a;
+  --icon: #d93a1e;
+  --icon-strong: #c22f14;
+  --accent-hover: #ef6a3c;
+  --accent-ink: #a93b1c;
+  --accent-soft: rgba(224, 74, 42, 0.14);
+  --ok: #1f8a4c;
+  --ok-soft: rgba(31, 138, 76, 0.12);
   --warn: #d98a1f;
   --err: #d23f36;
-  --err-soft: rgba(192, 125, 122, 0.1);
-  --talk: #2fa06a;
-  --mention: #8296b5;
-  --ring-track: rgba(49, 79, 108, 0.14);
-  --chip: rgba(49, 79, 108, 0.055);
+  --err-soft: rgba(210, 63, 54, 0.1);
+  --talk: #1f8a4c;
+  --mention: #c9951b;
+  --ring-track: rgba(28, 28, 25, 0.14);
+  --chip: rgba(28, 28, 25, 0.055);
 
   --radius: 16px;
   --radius-sm: 11px;
   --radius-xs: 8px;
-  --shadow-sm: 0 2px 12px rgba(42, 64, 88, 0.06);
-  --shadow: 0 14px 36px rgba(42, 64, 88, 0.1);
-  --shadow-lg: 0 26px 64px rgba(42, 64, 88, 0.15);
+  --shadow-sm: 0 2px 12px rgba(28, 26, 20, 0.06);
+  --shadow: 0 14px 36px rgba(28, 26, 20, 0.1);
+  --shadow-lg: 0 26px 64px rgba(28, 26, 20, 0.15);
   font-family:
     "SF Pro Display",
     "SF Pro Text",
@@ -85,15 +85,15 @@ body {
   /* 动态背景：柔和晕染慢速流动（白占比高、低饱和雾蓝青蓝 + 紫点缀，不刺眼） */
   background: linear-gradient(
     135deg,
-    #f9fbfd 0%,
-    #eef3f9 22%,
-    #f5f8fb 45%,
-    #e9f0f8 68%,
-    #f8fafd 100%
+    #faf6ef 0%,
+    #f2e9db 24%,
+    #f7f1e6 48%,
+    #efe5d4 70%,
+    #faf6ef 100%
   );
   background-size: 220% 220%;
   background-attachment: fixed;
-  animation: bg-drift 44s ease-in-out infinite alternate;
+  animation: bg-drift 55s linear infinite alternate;
 }
 
 button {
@@ -257,20 +257,20 @@ input[type="checkbox"] {
 }
 
 .blob {
-  animation: blob-drift-a 34s ease-in-out infinite alternate;
+  animation: blob-drift-a 34s var(--ease-spring) infinite alternate;
 }
 .blob.b2,
 .blob.b5 {
-  animation: blob-drift-b 26s ease-in-out infinite alternate;
+  animation: blob-drift-b 26s var(--ease-spring) infinite alternate;
   animation-delay: -8s;
 }
 .blob.b3,
 .blob.b6 {
-  animation: blob-drift-c 40s ease-in-out infinite alternate;
+  animation: blob-drift-c 40s var(--ease-spring) infinite alternate;
   animation-delay: -18s;
 }
 .blob.b7 {
-  animation: blob-drift-a 30s ease-in-out infinite alternate;
+  animation: blob-drift-a 30s var(--ease-spring) infinite alternate;
   animation-delay: -12s;
 }
 
@@ -326,8 +326,8 @@ input[type="checkbox"] {
   top: -10%;
   background: radial-gradient(
     circle at 42% 42%,
-    rgba(66, 130, 188, 0.92),
-    rgba(66, 130, 188, 0.3) 55%,
+    rgba(224, 74, 42, 0.92),
+    rgba(224, 74, 42, 0.3) 55%,
     rgba(91, 143, 184, 0) 76%
   );
 }
@@ -428,7 +428,7 @@ input[type="checkbox"] {
   border-radius: 6px;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, #2f7fd0, #6fa9e8);
+  background: linear-gradient(135deg, #e04a2a, #f08a5a);
   font-size: 10px;
   font-weight: 700;
   color: #fff;
@@ -532,7 +532,7 @@ input[type="checkbox"] {
 
 .wave.on i {
   background: var(--talk);
-  animation: wave-bounce 1.05s ease-in-out infinite alternate;
+  animation: wave-bounce 1.05s var(--ease-spring) infinite alternate;
 }
 
 .wave.tall i {
@@ -939,7 +939,7 @@ input[type="checkbox"] {
   bottom: 7%;
   width: 100%;
   height: 260px;
-  color: rgba(66, 130, 188, 0.68);
+  color: rgba(224, 74, 42, 0.68);
 }
 
 .bg-nodes {
@@ -950,13 +950,13 @@ input[type="checkbox"] {
   max-width: 94vw;
   transform: translate(-50%, -50%);
   opacity: 0.92;
-  color: rgba(66, 130, 188, 0.68);
+  color: rgba(224, 74, 42, 0.68);
 }
 
 /* —— 登录页动态背景：波形虚线流动 + 节点数据流 + 呼吸脉冲 —— */
 .bg-nodes .node-server {
   transform-origin: 450px 270px;
-  animation: node-breath 7s ease-in-out infinite;
+  animation: node-breath 7s var(--ease-spring) infinite;
 }
 .bg-nodes path {
   animation: dash-flow 14s linear infinite;
@@ -1077,8 +1077,8 @@ input[type="checkbox"] {
   border-radius: 24px;
   box-shadow:
     var(--glass-hi),
-    0 26px 64px rgba(42, 64, 88, 0.14),
-    0 0 0 1px rgba(49, 79, 108, 0.05);
+    0 26px 64px rgba(28, 26, 20, 0.14),
+    0 0 0 1px rgba(28, 28, 25, 0.05);
   backdrop-filter: blur(var(--blur-xl)) saturate(1.7);
   -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(1.7);
   padding: 34px 38px 30px;
@@ -1217,7 +1217,7 @@ input[type="checkbox"] {
   width: 42%;
   background: var(--accent);
   border-radius: 999px;
-  animation: encrypt-slide 1.3s ease-in-out infinite;
+  animation: encrypt-slide 1.3s var(--ease-spring) infinite;
 }
 
 @keyframes encrypt-slide {
@@ -1551,7 +1551,7 @@ input[type="checkbox"] {
 
 .user-state.talking {
   background: var(--talk);
-  box-shadow: 0 0 0 3px rgba(110, 169, 140, 0.18);
+  box-shadow: 0 0 0 3px rgba(31, 138, 76, 0.18);
   opacity: 1;
 }
 
@@ -2961,7 +2961,7 @@ input[type="checkbox"] {
   bottom: 0;
   width: 40%;
   background: var(--accent);
-  animation: reconnect-slide 1.2s ease-in-out infinite;
+  animation: reconnect-slide 1.2s var(--ease-spring) infinite;
 }
 
 @keyframes reconnect-slide {
@@ -3260,7 +3260,7 @@ input[type="checkbox"] {
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.72), rgba(247, 251, 254, 0.52));
   border: 1px solid rgba(255, 255, 255, 0.7);
   border-radius: 18px;
-  box-shadow: var(--glass-hi), 0 26px 64px rgba(42, 64, 88, 0.16), 0 0 0 1px rgba(49, 79, 108, 0.05);
+  box-shadow: var(--glass-hi), 0 26px 64px rgba(28, 26, 20, 0.16), 0 0 0 1px rgba(28, 28, 25, 0.05);
   backdrop-filter: blur(26px) saturate(1.6);
   -webkit-backdrop-filter: blur(26px) saturate(1.6);
   overflow: hidden;
@@ -3270,7 +3270,7 @@ input[type="checkbox"] {
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  border-bottom: 1px solid rgba(42, 64, 88, 0.08);
+  border-bottom: 1px solid rgba(28, 26, 20, 0.08);
 }
 .music-frame-title {
   display: inline-flex;
@@ -3336,7 +3336,7 @@ input[type="checkbox"] {
 .music-frame-empty code {
   font-family: ui-monospace, Consolas, monospace;
   font-size: 11.5px;
-  background: rgba(49, 79, 108, 0.08);
+  background: rgba(28, 28, 25, 0.08);
   padding: 1px 5px;
   border-radius: 5px;
 }
@@ -3358,12 +3358,12 @@ input[type="checkbox"] {
    —— 全部为追加增强，不改变既有结构与配色
    ================================================================ */
 :root {
-  --grad-accent: linear-gradient(135deg, #5aa7e8 0%, #4f86c2 55%, #7c86d8 100%);
+  --grad-accent: linear-gradient(135deg, #ff6a3d 0%, #e04a2a 55%, #e04a2a 100%);
   --grad-title: linear-gradient(105deg, #3f7cc0 0%, #5a6fc4 60%, #7a74c9 100%);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --shadow-hover: 0 18px 46px rgba(42, 64, 88, 0.13), 0 2px 8px rgba(42, 64, 88, 0.06);
-  --ring-focus: 0 0 0 3px rgba(79, 134, 194, 0.16);
+  --shadow-hover: 0 18px 46px rgba(28, 26, 20, 0.13), 0 2px 8px rgba(28, 26, 20, 0.06);
+  --ring-focus: 0 0 0 3px rgba(224, 74, 42, 0.16);
 }
 
 /* ---------- 全局微交互 ---------- */
@@ -3402,7 +3402,7 @@ button:not(:disabled):active,
   background: var(--grad-accent);
   border-color: transparent;
   box-shadow:
-    0 6px 20px rgba(63, 126, 190, 0.32),
+    0 6px 20px rgba(224, 74, 42, 0.32),
     inset 0 1px 0 rgba(255, 255, 255, 0.28);
   transition:
     box-shadow 0.3s var(--ease-out),
@@ -3413,7 +3413,7 @@ button.primary:hover:not(:disabled) {
   background: var(--grad-accent);
   filter: brightness(1.06) saturate(1.04);
   box-shadow:
-    0 10px 28px rgba(63, 126, 190, 0.4),
+    0 10px 28px rgba(224, 74, 42, 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
@@ -3447,7 +3447,7 @@ button.primary:hover:not(:disabled) {
 }
 .focus-card.talking {
   border-color: rgba(46, 158, 91, 0.4);
-  animation: focus-breathe 2.8s ease-in-out infinite;
+  animation: focus-breathe 2.8s var(--ease-spring) infinite;
 }
 @keyframes focus-breathe {
   0%,
@@ -3468,7 +3468,7 @@ button.primary:hover:not(:disabled) {
 /* ---------- 成员 chip：hover 上浮、说话渐变描边 ---------- */
 .member-chip:hover {
   transform: translateY(-1px);
-  box-shadow: var(--glass-hi), 0 10px 26px rgba(42, 64, 88, 0.1);
+  box-shadow: var(--glass-hi), 0 10px 26px rgba(28, 26, 20, 0.1);
 }
 .member-chip.talking {
   border-color: rgba(46, 158, 91, 0.4);
@@ -3493,7 +3493,7 @@ button.primary:hover:not(:disabled) {
 /* ---------- 标签 chip ---------- */
 .tag:hover {
   background: rgba(255, 255, 255, 0.74);
-  border-color: rgba(79, 134, 194, 0.28);
+  border-color: rgba(224, 74, 42, 0.28);
   color: var(--accent-ink);
   transform: translateY(-1px);
 }
@@ -3501,12 +3501,12 @@ button.primary:hover:not(:disabled) {
 /* ---------- 工具按钮 / 顶栏图标 hover 提亮 ---------- */
 .tool-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.78);
-  box-shadow: var(--glass-hi), 0 6px 16px rgba(42, 64, 88, 0.08);
+  box-shadow: var(--glass-hi), 0 6px 16px rgba(28, 26, 20, 0.08);
 }
 .top-icon:hover:not(:disabled),
 .icon-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.88);
-  box-shadow: var(--glass-hi), 0 6px 16px rgba(42, 64, 88, 0.08);
+  box-shadow: var(--glass-hi), 0 6px 16px rgba(28, 26, 20, 0.08);
 }
 
 /* ---------- 频道行 hover 过渡 + 左侧光条 ---------- */
@@ -3537,8 +3537,8 @@ button.primary:hover:not(:disabled) {
 .channel.active .channel-head {
   background: linear-gradient(
     90deg,
-    rgba(79, 134, 194, 0.16),
-    rgba(79, 134, 194, 0.05)
+    rgba(224, 74, 42, 0.16),
+    rgba(224, 74, 42, 0.05)
   );
 }
 
@@ -3548,27 +3548,27 @@ select:focus,
 textarea:focus,
 .chat-input input:focus {
   outline: none;
-  border-color: rgba(79, 134, 194, 0.45);
+  border-color: rgba(224, 74, 42, 0.45);
   box-shadow: var(--ring-focus);
 }
 
 /* ---------- 细滚动条（浅蓝玻璃） ---------- */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(79, 134, 194, 0.35) transparent;
+  scrollbar-color: rgba(224, 74, 42, 0.35) transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgba(79, 134, 194, 0.28);
+  background: rgba(224, 74, 42, 0.28);
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(79, 134, 194, 0.45);
+  background: rgba(224, 74, 42, 0.45);
   border: 2px solid transparent;
   background-clip: padding-box;
 }
@@ -3661,7 +3661,7 @@ textarea:focus,
   );
   border: 1px solid rgba(255, 255, 255, 0.62);
   border-radius: 16px;
-  box-shadow: var(--glass-hi), 0 8px 22px rgba(42, 64, 88, 0.07);
+  box-shadow: var(--glass-hi), 0 8px 22px rgba(28, 26, 20, 0.07);
   backdrop-filter: blur(18px) saturate(1.5);
   -webkit-backdrop-filter: blur(18px) saturate(1.5);
   transition:
@@ -3670,7 +3670,7 @@ textarea:focus,
 }
 .feature:hover {
   transform: translateY(-2px);
-  box-shadow: var(--glass-hi), 0 14px 32px rgba(42, 64, 88, 0.12);
+  box-shadow: var(--glass-hi), 0 14px 32px rgba(28, 26, 20, 0.12);
 }
 .feature-icon {
   flex-shrink: 0;
@@ -3679,9 +3679,9 @@ textarea:focus,
   border-radius: 11px;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, #5aa7e8, #4f86c2 60%, #7c86d8);
+  background: linear-gradient(135deg, #ff6a3d, #e04a2a 60%, #e04a2a);
   color: #fff;
-  box-shadow: 0 6px 16px rgba(63, 126, 190, 0.28);
+  box-shadow: 0 6px 16px rgba(224, 74, 42, 0.28);
 }
 .feature-icon svg {
   width: 16px;
@@ -4057,4 +4057,16 @@ button:not(:disabled):active,
   align-items: flex-start;
   gap: 11px;
   padding: 13px 14px;
+}
+
+
+/* ===== 噪点纹理：每个像素都有温度 ===== */
+.noise-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply;
 }
