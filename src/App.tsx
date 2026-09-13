@@ -36,9 +36,10 @@ import {
   type LogItem,
   type RecentServer,
 } from './lib/utils'
-import { BellIcon, GlobeIcon, HeadphoneIcon, MicIcon, PersonIcon, WaveBars } from './components/icons'
+import { BellIcon, GlobeIcon, HeadphoneIcon, MicIcon, MusicIcon, PersonIcon, WaveBars } from './components/icons'
 import { Segmented, SettingRow, Switch } from './components/controls'
 import { ChannelListView } from './components/ChannelListView'
+import { MusicPanel } from './MusicPanel'
 
 interface ChatMsg {
   from: string
@@ -113,7 +114,7 @@ function emptyTab(partial?: Partial<ConnectionTab>): ConnectionTab {
   }
 }
 
-type AppView = 'login' | 'main' | 'settings'
+type AppView = 'login' | 'main' | 'settings' | 'music'
 type SettingsNav = 'account' | 'audio' | 'activation' | 'notify' | 'theme' | 'network'
 
 // 模块级小组件：避免在 App 内部定义导致每次渲染重挂载（输入框失焦）
@@ -1396,6 +1397,14 @@ export default function App() {
           </div>
           <button
             type="button"
+            className="top-icon music-top"
+            title="音乐机器人"
+            onClick={() => setView('music')}
+          >
+            <MusicIcon />
+          </button>
+          <button
+            type="button"
             className={`top-icon${soundsOn ? '' : ' off'}`}
             title={soundsOn ? '通知音效开' : '通知音效关'}
             onClick={() => {
@@ -2318,6 +2327,8 @@ export default function App() {
       </div>
       {view === 'settings' ? (
         renderSettings()
+      ) : view === 'music' && connected ? (
+        <MusicPanel onClose={() => setView('main')} />
       ) : connected ? (
         renderMain()
       ) : (

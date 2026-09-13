@@ -32,6 +32,7 @@ TeamSpeak Web 通过一个轻量的 **Node.js WebSocket 网关**桥接 TeamSpeak
 | 🖥️ 多开 | 顶栏多服务器标签，仅活动标签上行麦克风 |
 | 🔐 安全 | WS 帧载荷上限、并发连接数上限、可选的网关访问令牌（`GATEWAY_TOKEN`） |
 | 🛡️ 健壮 | 断线自动重连、防重连风暴、mock 定时器防泄漏、二进制帧防御、ESLint + Vitest 质量门 |
+| 🎵 音乐 | **音乐机器人集成（TSMusicBot）**：内置控制面板——搜索 / 点歌（网易云·QQ·酷狗·B站·YouTube·Jellyfin·Spotify）、播放控制 / 音量 / 播放模式、播放队列、歌词滚动、多机器人切换；网关 `/music` 同源反向代理（REST + WebSocket），免 CORS
 
 ---
 
@@ -229,6 +230,7 @@ server {
 | `MAX_CONNECTIONS` | `64` | 并发 WS 连接上限，防资源耗尽 |
 | `TS_CONNECT_TIMEOUT_MS` | `45000` | TS3 握手超时（毫秒） |
 | `TS_WELCOME_WAIT_MS` | `1500` | 连接后等待欢迎消息的缓冲（毫秒） |
+| `MUSIC_BOT_URL` | 空 | 音乐机器人（TSMusicBot）Web API 地址，如 `http://127.0.0.1:3000`；**非空时启用**网关 `/music` 反向代理（`/music/api/*` + `/music/ws`），同源访问免 CORS、免跨域 Cookie 问题 |
 
 Windows PowerShell 设置方式：
 
@@ -237,6 +239,57 @@ $env:PROTOCOL = "ts3"
 $env:PORT = "8080"
 npm start
 ```
+
+## 🎵 音乐机器人集成（TSMusicBot）
+
+主界面顶栏的 🎵 按钮打开音乐控制面板，通过网关 `/music` 反向代理控制 [TSMusicBot](https://github.com/ZHANGTIANYAO1/teamspeak-music-bot) 音乐机器人：搜索 / 点歌 / 播放控制 / 音量 / 播放模式 / 队列 / 歌词，多机器人一键切换，鉴权（账号密码 + HttpOnly 会话 Cookie）与机器人自身一致。
+
+```text
+浏览器 ──WS/HTTP──> 网关(:8080) ──/music 代理──> TSMusicBot(:3000) ──TS3 客户端协议──> TeamSpeak 服务器
+                     (同源，免 CORS)           (真实客户端，UDP 推流 Opus 音乐)         └── 频道内所有人听到音乐
+```
+
+### 部署步骤（机器人侧）
+
+1. 部署 [TSMusicBot](https://github.com/ZHANGTIANYAO1/teamspeak-music-bot)（Node 22 LTS 或 Docker，默认端口 3000；内置 FFmpeg 与网易云 / QQ / 酷狗 / B 站等音源）。
+2. 首次访问 `http://<机器IP>:3000` 初始化管理员账号。
+3. 在机器人 WebUI 创建并启动一个机器人：服务器地址填你的 TS 服务器（如 `ts.example.com`）、端口 `9987`、昵称 ≥ 3 字符。
+4. 本网关设置环境变量后重启：
+
+```powershell
+# PowerShell（Windows）
+$env:MUSIC_BOT_URL = "http://127.0.0.1:3000"
+npm start
+```
+
+```bash
+# Linux / Docker 环境变量
+MUSIC_BOT_URL=http://127.0.0.1:3000 npm start
+```
+
+5. 刷新 Web 客户端 → 顶栏 🎵 → 用机器人账号登录 → 选择机器人 → 搜索点歌。
+
+> 机器人侧也可直接用聊天命令点歌（`!play 歌名`、`!search` 等），Web 面板与聊天命令共用同一队列。
+
+### 面板使用说明
+
+- **未配置**：面板提示设置 `MUSIC_BOT_URL`（机器人未部署或网关未启用代理）。
+- **首次使用**：若机器人尚未初始化账号，在面板填账号密码点「首次配置」；已初始化则直接「登录」。
+- **机器人选择**：登录后下拉选择在线机器人；没有机器人时去机器人 WebUI 创建。
+- **播放**：搜索框输入歌名 / 歌单 / 专辑，可选平台（自动 / 网易云 / QQ / 酷狗 / B 站…），点「播放」立即播放、「+队列」追加。
+- **控制**：上一首 / 播放暂停 / 下一首 / 停止、进度条拖拽、音量 0–100、播放模式（顺序 / 循环 / 随机 / 随机循环）。
+- **队列**：当前曲目高亮，点击任意行跳播，× 移出，右上「清空」清空队列。
+- **歌词**：当前曲目自动拉取歌词滚动显示，当前行高亮。
+
+### 故障排查
+
+| 现象 | 处理 |
+|------|------|
+| 面板提示「音乐机器人服务未配置」 | 检查网关环境变量 `MUSIC_BOT_URL` 已设置且机器人已启动 |
+| 登录 401 | 在机器人 WebUI 确认账号密码；首次使用先「首次配置」 |
+| 机器人列表为空 | 到机器人 WebUI（`:3000`）创建并启动机器人 |
+| 搜索无结果 | 音源可能未登录 / 被限流，可到机器人 WebUI 扫码登录网易云 / QQ 等账号 |
+| 播放失败 / 卡住 | 机器人日志（`bot-run.log`）；服务器地址、端口、昵称是否合法（昵称 ≥ 3 字符） |
 
 ### 安全注意
 
@@ -272,11 +325,13 @@ npm run smoke:ts3 -- <ts-host> [port]
 ```
 ├── src/                    # React 前端
 │   ├── App.tsx             # 主应用（登录 / 主界面 / 设置）
+│   ├── MusicPanel.tsx      # 音乐机器人控制面板（搜索 / 播放 / 队列 / 歌词）
 │   ├── components/         # 图标 / 控件 / 频道树等拆分组件
 │   ├── lib/                # 网关客户端 / 麦克风 / 语音管线 / 工具
 │   └── styles.css          # 毛玻璃 UI 主题
 ├── gateway/                # Node 网关
-│   └── src/protocol/       # ts3-adapter（真实协议）/ mock-adapter（演示）
+│   ├── src/protocol/       # ts3-adapter（真实协议）/ mock-adapter（演示）
+│   └── src/music-proxy.ts  # /music 反向代理（REST + WebSocket，免 CORS）
 ├── shared/types.ts         # WebSocket 消息契约
 ├── deploy/                 # systemd / Nginx 参考配置
 └── docs/                   # 设计规格 / 截图
@@ -320,6 +375,7 @@ npm run smoke:ts3 -- <ts-host> [port]
 - **[@honeybbq/teamspeak-client](https://www.npmjs.com/package/@honeybbq/teamspeak-client)**（MIT）—— 本项目使用的真实 TS3 客户端协议库
 - **[reflex-aec](https://github.com/XINMurat/reflex-aec)**（MIT）—— 浏览器端 FDAF+NLMS 回声消除算法，本项目软件 AEC 处理链参考其实现
 - **[@shiguredo/rnnoise-wasm](https://github.com/shiguredo/rnnoise-wasm)**（Apache-2.0，内核为 Xiph RNNoise）—— 本项目 AI 降噪的 WebAssembly 实现
+- **[teamspeak-music-bot](https://github.com/ZHANGTIANYAO1/teamspeak-music-bot)**（MIT）—— 音乐机器人（TSMusicBot），本项目通过网关 /music 代理深度集成其 Web 控制能力
 
 ---
 
