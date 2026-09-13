@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import type { ChannelNode, ClientInfo } from '../../shared/types'
 import { SpeakerIcon } from './icons'
+import { Avatar, AvatarFallback } from '@shared/components/ui/avatar'
+import { ChevronDown, ChevronRight, Home, MicOff, Moon, Star, VolumeX } from 'lucide-react'
 import { countryFlag } from '../lib/utils'
 
 export function ChannelListView({
@@ -132,12 +134,12 @@ export function ChannelListView({
                       onToggleCollapse(ch.id)
                     }}
                   >
-                    {isOpen ? '▾' : '▸'}
+                    {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                   </span>
                 ) : (
                   <span className="channel-icon">
                     {ch.isDefault ? (
-                      '⌂'
+                      <Home size={13} />
                     ) : (
                       <SpeakerIcon />
                     )}
@@ -168,20 +170,26 @@ export function ChannelListView({
                       onClientMenu(c, e)
                     }}
                   >
-                    <span className={`dot${c.isTalking ? ' talking' : ''}`} />
-                    {c.isCommander && <span title="频道指挥官">★</span>}
-                    {c.isAway && <span title="离开">🌙</span>}
-                    {c.isInputMuted && <span title="输入已闭麦">🎤</span>}
-                    {c.isOutputMuted && <span title="输出已闭麦">🔇</span>}
+                    <Avatar
+                      className={`h-5 w-5 shrink-0 border-3 shadow-brutal-sm${c.isTalking ? ' talking-avatar' : ''}`}
+                    >
+                      <AvatarFallback className="bg-brutal-bg text-[9px] font-black text-brutal-fg">
+                        {(c.nickname || '?').slice(0, 1).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    {c.isCommander && (
+                      <Star size={11} className="shrink-0 fill-[#f2c14e] text-[#c9951b]" aria-label="频道指挥官" />
+                    )}
+                    {c.isAway && <Moon size={11} className="shrink-0 text-[#6e6a60]" aria-label="离开" />}
+                    {c.isInputMuted && <MicOff size={11} className="shrink-0 text-[#d23f36]" aria-label="输入已闭麦" />}
+                    {c.isOutputMuted && <VolumeX size={11} className="shrink-0 text-[#d23f36]" aria-label="输出已闭麦" />}
                     {c.country && (
                       <span title={c.country}>{countryFlag(c.country)}</span>
                     )}
                     <span>{c.nickname}</span>
                     {c.id === selfId && <span className="channel-meta">（我）</span>}
                     {c.isMuted && !c.isInputMuted && (
-                      <span className="channel-meta" title="已静音">
-                        🔇
-                      </span>
+                      <VolumeX size={11} className="shrink-0 text-[#d23f36]" aria-label="已静音" />
                     )}
                   </div>
                 ))}

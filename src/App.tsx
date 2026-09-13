@@ -37,7 +37,7 @@ import {
   type RecentServer,
 } from './lib/utils'
 import { BellIcon, HeadphoneIcon, LockIcon, MicIcon, MusicIcon, PersonIcon, SparklesIcon, WaveBars, ZapIcon } from './components/icons'
-import { Segmented, SettingRow, Switch } from './components/controls'
+import { SettingRow, Switch } from './components/controls'
 import { ChannelListView } from './components/ChannelListView'
 import { BlinkingSquares } from './components/BlinkingSquares'
 import { Button } from '@shared/components/ui/button'
@@ -45,6 +45,27 @@ import { Card } from '@shared/components/ui/card'
 import { Input } from '@shared/components/ui/input'
 import { Switch as BrutalSwitch } from '@shared/components/ui/switch'
 import { Slider as BrutalSlider } from '@shared/components/ui/slider'
+import { Tabs, TabsList, TabsTrigger } from '@shared/components/ui/tabs'
+import { ToggleGroup, ToggleGroupItem } from '@shared/components/ui/toggle-group'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@shared/components/ui/dropdown-menu'
+import { ChevronRight, Copy, MessageSquare, Zap } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@shared/components/ui/dialog'
 
 interface ChatMsg {
   from: string
@@ -152,9 +173,7 @@ export default function App() {
     y: number
     client: ClientInfo
   } | null>(null)
-  const [menuSub, setMenuSub] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const [volumes, setVolumes] = useState<Record<string, number>>({})
+      const [volumes, setVolumes] = useState<Record<string, number>>({})
   const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([])
   const [sinkId, setSinkId] = useState(() => getStoredSinkId())
   const [soundsOn, setSoundsOn] = useState(() => getSoundsEnabled())
@@ -664,35 +683,8 @@ export default function App() {
     setMenu({ x, y, client })
   }
 
-  // Focus first menu item on open; reset submenu
-  useEffect(() => {
-    if (menu) {
-      setMenuSub(false)
-      setTimeout(
-        () => menuRef.current?.querySelector('button')?.focus(),
-        0,
-      )
-    }
-  }, [menu])
 
-  function onMenuKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Escape') {
-      setMenu(null)
-      return
-    }
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
-    e.preventDefault()
-    const items = Array.from(
-      menuRef.current?.querySelectorAll('button') ?? [],
-    ) as HTMLButtonElement[]
-    if (!items.length) return
-    const idx = items.indexOf(document.activeElement as HTMLButtonElement)
-    const next =
-      e.key === 'ArrowDown'
-        ? items[(idx + 1 + items.length) % items.length]
-        : items[(idx - 1 + items.length) % items.length]
-    next?.focus()
-  }
+
 
   useEffect(() => {
     const close = () => setMenu(null)
@@ -1109,15 +1101,18 @@ export default function App() {
         label="发送方式"
         right={<span className="setting-status">当前：{mic.state.vox.mode === 'open' ? '常开' : mic.state.vox.mode === 'vox' ? '声控 VOX' : '按键 PTT'}</span>}
       >
-        <Segmented
+        <ToggleGroup
+          type="single"
           value={mic.state.vox.mode}
-          options={[
-            { value: 'open', label: '常开' },
-            { value: 'vox', label: '声控 VOX' },
-            { value: 'ptt', label: '按键 PTT' },
-          ]}
-          onChange={(v) => mic.setVox({ mode: v as 'open' | 'vox' | 'ptt' })}
-        />
+          onValueChange={(v) => {
+            if (v) mic.setVox({ mode: v as 'open' | 'vox' | 'ptt' })
+          }}
+          className="justify-start gap-1.5"
+        >
+          <ToggleGroupItem value="open" className="h-9 px-3 text-sm">常开</ToggleGroupItem>
+          <ToggleGroupItem value="vox" className="h-9 px-3 text-sm">声控 VOX</ToggleGroupItem>
+          <ToggleGroupItem value="ptt" className="h-9 px-3 text-sm">按键 PTT</ToggleGroupItem>
+        </ToggleGroup>
       </SettingRow>
       {mic.state.vox.mode === 'vox' && (
         <SettingRow label="VOX 阈值" right={<span className="setting-status">{voxPct}%</span>}>
@@ -1786,28 +1781,33 @@ const renderMain = () => {
           </section>
 
           <aside className={`panel chat-panel${mobileTab === 'chat' ? ' m-active' : ''}`}>
-            <div className="side-tabs">
-              <button
-                type="button"
-                className={`side-tab${sideTab === 'chat' ? ' active' : ''}`}
-                onClick={() => setSideTab('chat')}
-              >
-                聊天
-              </button>
-              <button
-                type="button"
-                className={`side-tab${sideTab === 'events' ? ' active' : ''}`}
-                onClick={() => {
-                  setSideTab('events')
-                  if (active) patchTab(active.id, { eventsUnread: 0 })
-                }}
-              >
-                事件
-                {active && active.eventsUnread > 0 && sideTab !== 'events' && (
-                  <span className="side-badge">{active.eventsUnread}</span>
-                )}
-              </button>
-            </div>
+            <Tabs
+              value={sideTab}
+              onValueChange={(v) => {
+                setSideTab(v as 'chat' | 'events')
+                if (v === 'events' && active)
+                  patchTab(active.id, { eventsUnread: 0 })
+              }}
+              className="side-tabs"
+            >
+              <TabsList className="h-9 gap-0 bg-transparent p-0 shadow-none border-0">
+                <TabsTrigger
+                  value="chat"
+                  className="side-tab-brutal px-3 data-[state=active]:bg-[#e04a2a] data-[state=active]:text-white"
+                >
+                  聊天
+                </TabsTrigger>
+                <TabsTrigger
+                  value="events"
+                  className="side-tab-brutal px-3 data-[state=active]:bg-[#e04a2a] data-[state=active]:text-white"
+                >
+                  事件
+                  {active && active.eventsUnread > 0 && sideTab !== 'events' && (
+                    <span className="side-badge">{active.eventsUnread}</span>
+                  )}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
             {sideTab === 'chat' ? (
               <>
                 <div className="chat-wrap">
@@ -2352,7 +2352,6 @@ const renderMain = () => {
   return (
     <div className="app">
       <div className="noise-overlay" aria-hidden="true" />
-      <BlinkingSquares />
       {view === 'settings' ? (
         renderSettings()
       ) : connected ? (
@@ -2362,14 +2361,11 @@ const renderMain = () => {
       )}
 
       {helpOpen && (
-        <div className="shortcut-overlay" onClick={() => setHelpOpen(false)}>
-          <div
-            className="shortcut-modal"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-label="帮助"
-          >
-            <h3>帮助</h3>
+        <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>帮助</DialogTitle>
+            </DialogHeader>
             <div className="shortcut-list">
               <div className="kv">
                 <span>服务器地址格式</span>
@@ -2388,22 +2384,21 @@ const renderMain = () => {
                 <strong>检查拼写与 DNS</strong>
               </div>
             </div>
-            <button type="button" onClick={() => setHelpOpen(false)}>
-              关闭
-            </button>
-          </div>
-        </div>
+            <DialogFooter>
+              <Button variant="primary" size="sm" onClick={() => setHelpOpen(false)}>
+                关闭
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
 
       {showShortcuts && (
-        <div className="shortcut-overlay" onClick={() => setShowShortcuts(false)}>
-          <div
-            className="shortcut-modal"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-label="键盘快捷键"
-          >
-            <h3>键盘快捷键</h3>
+        <Dialog open={showShortcuts} onOpenChange={setShowShortcuts}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>键盘快捷键</DialogTitle>
+            </DialogHeader>
             <div className="shortcut-list">
               <div className="kv"><span>过滤频道 / 成员</span><strong>Ctrl/⌘ K</strong></div>
               <div className="kv"><span>切换服务器标签</span><strong>Ctrl/⌘ 1…9</strong></div>
@@ -2416,11 +2411,13 @@ const renderMain = () => {
               <div className="kv"><span>关闭弹层 / 菜单</span><strong>Esc</strong></div>
               <div className="kv"><span>本页面</span><strong>?</strong></div>
             </div>
-            <button type="button" onClick={() => setShowShortcuts(false)}>
-              关闭（Esc）
-            </button>
-          </div>
-        </div>
+            <DialogFooter>
+              <Button variant="primary" size="sm" onClick={() => setShowShortcuts(false)}>
+                关闭（Esc）
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
 
       <div className="toast-stack">
@@ -2432,52 +2429,62 @@ const renderMain = () => {
       </div>
 
       {menu && active && (
-        <div
-          ref={menuRef}
-          className="context-menu"
-          style={{ left: menu.x, top: menu.y }}
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={onMenuKeyDown}
+        <DropdownMenu
+          open
+          onOpenChange={(o) => {
+            if (!o) setMenu(null)
+          }}
+          modal={false}
         >
-          <div className="context-title">{menu.client.nickname}</div>
-          <button
-            type="button"
-            onClick={() => {
-              patchTab(active.id, {
-                chatTarget: 'pm',
-                pmTarget: menu.client.id,
-              })
-              setMenu(null)
-            }}
+          <DropdownMenuTrigger asChild>
+            <span
+              style={{
+                position: 'fixed',
+                left: menu.x,
+                top: menu.y,
+                width: 1,
+                height: 1,
+                opacity: 0,
+                pointerEvents: 'none',
+              }}
+            />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            side="right"
+            className="z-[140] min-w-[210px]"
           >
-            私聊
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              active.client?.send({
-                type: 'poke',
-                targetId: menu.client.id,
-                message: '来自网页客户端',
-              })
-              setMenu(null)
-            }}
-          >
-            Poke
-          </button>
-          <div className="context-item">
-            <button
-              type="button"
-              className={menuSub ? 'sub-open' : ''}
-              onClick={() => setMenuSub((s) => !s)}
+            <DropdownMenuLabel className="border-b-3 border-brutal font-black">
+              {menu.client.nickname}
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              onSelect={() => {
+                patchTab(active.id, {
+                  chatTarget: 'pm',
+                  pmTarget: menu.client.id,
+                })
+              }}
             >
-              耳语 <span className="sub-arrow"> › </span>
-            </button>
-            {menuSub && (
-              <div className="context-sub">
-                <button
-                  type="button"
-                  onClick={() => {
+              <MessageSquare size={14} /> 私聊
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                active.client?.send({
+                  type: 'poke',
+                  targetId: menu.client.id,
+                  message: '来自网页客户端',
+                })
+              }}
+            >
+              <Zap size={14} /> Poke
+            </DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                耳语 <ChevronRight size={14} className="ml-auto" />
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="z-[150]">
+                <DropdownMenuItem
+                  onSelect={() => {
                     active.client?.send({
                       type: 'whisper_add',
                       target: { kind: 'client', id: menu.client.id },
@@ -2487,14 +2494,12 @@ const renderMain = () => {
                         ...new Set([...active.whisperClients, menu.client.id]),
                       ],
                     })
-                    setMenu(null)
                   }}
                 >
                   加入耳语目标
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => {
                     const cid = menu.client.channelId
                     active.client?.send({
                       type: 'whisper_add',
@@ -2505,51 +2510,49 @@ const renderMain = () => {
                         ...new Set([...active.whisperChannels, cid]),
                       ],
                     })
-                    setMenu(null)
                   }}
                 >
                   耳语其所在频道
-                </button>
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => {
+                void navigator.clipboard.writeText(menu.client.nickname)
+              }}
+            >
+              <Copy size={14} /> 复制昵称
+            </DropdownMenuItem>
+            <div className="border-t-3 border-brutal px-3 py-2.5">
+              <div className="mb-1.5 text-xs font-bold">
+                音量{' '}
+                {Math.round(
+                  (volumes[`${menu.client.id}:${menu.client.nickname}`] ?? 1) *
+                    100,
+                )}
+                %
               </div>
-            )}
-          </div>
-          <div className="context-sep" />
-          <button
-            type="button"
-            onClick={() => {
-              void navigator.clipboard.writeText(menu.client.nickname)
-              setMenu(null)
-            }}
-          >
-            复制昵称
-          </button>
-          <div className="context-vol-slider">
-            <span>
-              音量{' '}
-              {Math.round(
-                (volumes[`${menu.client.id}:${menu.client.nickname}`] ?? 1) *
-                  100,
-              )}
-              %
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={150}
-              value={Math.round(
-                (volumes[`${menu.client.id}:${menu.client.nickname}`] ?? 1) *
-                  100,
-              )}
-              onChange={(e) =>
-                setClientVol(
-                  menu.client.nickname,
-                  menu.client.id,
-                  Number(e.target.value) / 100,
-                )
-              }
-            />
-          </div>
-        </div>
+              <BrutalSlider
+                min={0}
+                max={150}
+                value={[
+                  Math.round(
+                    (volumes[`${menu.client.id}:${menu.client.nickname}`] ?? 1) *
+                      100,
+                  ),
+                ]}
+                onValueChange={(v) =>
+                  setClientVol(
+                    menu.client.nickname,
+                    menu.client.id,
+                    (v[0] ?? 0) / 100,
+                  )
+                }
+              />
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
     </div>
   )

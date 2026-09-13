@@ -4070,3 +4070,51 @@ button:not(:disabled):active,
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   mix-blend-mode: multiply;
 }
+
+/* ===== BrutxUI 全元素落地：语音栏 / 频道树 / 最近连接 / Toast / 侧边 Tab ===== */
+.voice-bar {
+  border-top: 3px solid var(--brutal-border-color, #1c1c19);
+  box-shadow:
+    0 -4px 0 var(--brutal-shadow-color, #1c1c19),
+    var(--glass-hi);
+}
+
+.channel.active > .channel-head {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.channel-head:hover {
+  background: var(--chip);
+}
+
+.client:hover {
+  background: var(--panel-3);
+  box-shadow: 2px 2px 0 0 var(--brutal-shadow-color, #1c1c19);
+  border: 2px solid var(--brutal-border-color, #1c1c19);
+  margin: -2px -2px -2px -2px;
+}
+
+.recent-list li button {
+  border: 3px solid var(--brutal-border-color, #1c1c19);
+  border-radius: 10px;
+  box-shadow: 2px 2px 0 0 var(--brutal-shadow-color, #1c1c19);
+  background: var(--panel-solid);
+  transition:
+    transform 0.15s var(--ease-spring),
+    box-shadow 0.15s var(--ease-spring);
+}
+.recent-list li button:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 0 var(--brutal-shadow-color, #1c1c19);
+}
+
+.side-tab-brutal {
+  border-radius: 8px 8px 0 0;
+  color: var(--muted);
+}
+
+.toast {
+  border: 3px solid var(--brutal-border-color, #1c1c19);
+  border-radius: 10px;
+  box-shadow: 3px 3px 0 0 var(--brutal-shadow-color, #1c1c19);
+}
