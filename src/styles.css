@@ -4043,3 +4043,18 @@ button:not(:disabled):active,
     transition: none !important;
   }
 }
+/* ===== BrutxUI 登录页布局（组件类） ===== */
+.login-card-brutal {
+  width: 440px;
+  max-width: 100%;
+  padding: 34px 38px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+.feature-brutal {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 13px 14px;
+}

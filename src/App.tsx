@@ -36,10 +36,15 @@ import {
   type LogItem,
   type RecentServer,
 } from './lib/utils'
-import { BellIcon, GlobeIcon, HeadphoneIcon, LockIcon, MicIcon, MusicIcon, PersonIcon, SparklesIcon, WaveBars, ZapIcon } from './components/icons'
+import { BellIcon, HeadphoneIcon, LockIcon, MicIcon, MusicIcon, PersonIcon, SparklesIcon, WaveBars, ZapIcon } from './components/icons'
 import { Segmented, SettingRow, Switch } from './components/controls'
 import { ChannelListView } from './components/ChannelListView'
 import { BlinkingSquares } from './components/BlinkingSquares'
+import { Button } from '@shared/components/ui/button'
+import { Card } from '@shared/components/ui/card'
+import { Input } from '@shared/components/ui/input'
+import { Switch as BrutalSwitch } from '@shared/components/ui/switch'
+import { Slider as BrutalSlider } from '@shared/components/ui/slider'
 
 interface ChatMsg {
   from: string
@@ -1116,12 +1121,12 @@ export default function App() {
       </SettingRow>
       {mic.state.vox.mode === 'vox' && (
         <SettingRow label="VOX 阈值" right={<span className="setting-status">{voxPct}%</span>}>
-          <input
-            type="range"
+          <BrutalSlider
             min={1}
             max={60}
-            value={voxPct}
-            onChange={(e) => mic.setVox({ threshold: Number(e.target.value) / 100 })}
+            value={[voxPct]}
+            onValueChange={(v) => mic.setVox({ threshold: (v[0] ?? 1) / 100 })}
+            className="max-w-[240px]"
           />
         </SettingRow>
       )}
@@ -1181,7 +1186,10 @@ export default function App() {
             <p className="hero-sub">浏览器语音客户端 · 免安装 · 即开即聊</p>
             <div className="hero-features">
               {features.map((f) => (
-                <div className="feature" key={f.title}>
+                <div
+                  className="feature-brutal border-3 shadow-brutal-sm rounded-brutal bg-brutal-bg"
+                  key={f.title}
+                >
                   <span className="feature-icon">{f.icon}</span>
                   <span className="feature-text">
                     <span className="feature-title">{f.title}</span>
@@ -1192,7 +1200,7 @@ export default function App() {
             </div>
             <p className="hero-note">多端可用 · 音乐机器人一键接入 · 轻量免安装</p>
           </div>
-          <div className={`login-card${connecting ? ' connecting' : ''}${lastFailed ? ' failed' : ''}`}>
+          <Card className="login-card-brutal border-3 shadow-brutal rounded-brutal bg-brutal-bg">
             <h2>登录</h2>
             <p className="login-sub">
               {connecting
@@ -1202,19 +1210,17 @@ export default function App() {
 
             <label className={`field${hostError ? ' invalid' : ''}`}>
               <span className="field-label">服务器地址</span>
-              <span className="input-wrap">
-                <GlobeIcon />
-                <input
-                  value={addressInput}
-                  onChange={(e) => {
-                    setAddressInput(e.target.value)
-                    if (fieldErrors.host)
-                      setFieldErrors((f) => ({ ...f, host: undefined }))
-                  }}
-                  placeholder="ts.example.com:9987"
-                  disabled={connecting}
-                />
-              </span>
+              <Input
+                value={addressInput}
+                onChange={(e) => {
+                  setAddressInput(e.target.value)
+                  if (fieldErrors.host)
+                    setFieldErrors((f) => ({ ...f, host: undefined }))
+                }}
+                placeholder="ts.example.com:9987"
+                disabled={connecting}
+                className="h-11"
+              />
               {hostError && <span className="field-error">{hostError}</span>}
               {lastFailed && (
                 <span className="field-error">
@@ -1227,7 +1233,7 @@ export default function App() {
 
             <label className={`field${nickError ? ' invalid' : ''}`}>
               <span className="field-label">昵称</span>
-              <input
+              <Input
                 value={active?.nickname || ''}
                 onChange={(e) => {
                   if (active) patchTab(active.id, { nickname: e.target.value })
@@ -1236,6 +1242,7 @@ export default function App() {
                 }}
                 placeholder="你的昵称"
                 disabled={connecting}
+                className="h-11"
               />
               {nickError && <span className="field-error">{nickError}</span>}
             </label>
@@ -1284,31 +1291,34 @@ export default function App() {
 
             <div className="remember-row">
               <span>记住这台服务器</span>
-              <Switch
-                on={rememberServer}
-                onToggle={() => setRememberServer((v) => !v)}
-                label="记住这台服务器"
+              <BrutalSwitch
+                checked={rememberServer}
+                onCheckedChange={(v) => setRememberServer(!!v)}
+                aria-label="记住这台服务器"
               />
             </div>
 
-            <button
-              type="button"
-              className="primary login-cta"
+            <Button
+              variant="primary"
+              size="lg"
+              className="w-full login-cta"
               disabled={connecting}
+              loading={connecting}
               onClick={connectFromLogin}
             >
               {connecting ? '正在连接…' : lastFailed ? '重新连接 →' : '连接服务器 →'}
-            </button>
+            </Button>
 
             <div className="login-or"><span>或</span></div>
-            <button
-              type="button"
-              className="guest-link"
+            <Button
+              variant="outline"
+              size="lg"
+              className="w-full"
               disabled={connecting}
               onClick={connectAsGuest}
             >
               以游客身份连接
-            </button>
+            </Button>
 
             <div className="recent-block">
               <div className="recent-head">
@@ -1336,7 +1346,7 @@ export default function App() {
                 </ul>
               )}
             </div>
-          </div>
+          </Card>
           <div className="login-foot">
             <div className="login-tagline">端到端加密 · 声控 VOX 与按键 PTT 双模式 · AI 降噪</div>
             <div className="brand-foot">TeamSpeak Web · 浏览器语音客户端</div>
@@ -1346,9 +1356,8 @@ export default function App() {
     )
   }
 
-  // ---------- 主视图 ----------
 
-  const renderMain = () => {
+const renderMain = () => {
     return (
       <div className="main-view">
         <header className="topbar">
@@ -1412,41 +1421,30 @@ export default function App() {
             />
             <kbd>Ctrl K</kbd>
           </div>
-          <button
-            type="button"
-            className={`top-icon${soundsOn ? '' : ' off'}`}
-            title={soundsOn ? '通知音效开' : '通知音效关'}
-            onClick={() => {
-              setSoundsOn((v) => {
-                setSoundsEnabled(!v)
-                return !v
-              })
-            }}
-          >
-            <BellIcon />
-          </button>
-<button
-            type="button"
-            className={`top-icon${soundsOn ? '' : ' off'}`}
-            title={soundsOn ? '通知音效开' : '通知音效关'}
-            onClick={() => {
-              setSoundsOn((v) => {
-                setSoundsEnabled(!v)
-                return !v
-              })
-            }}
-          >
-            <BellIcon />
-          </button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`top-icon${soundsOn ? '' : ' off'}`}
+              title={soundsOn ? '通知音效开' : '通知音效关'}
+              onClick={() => {
+                setSoundsOn((v) => {
+                  setSoundsEnabled(!v)
+                  return !v
+                })
+              }}
+            >
+              <BellIcon />
+            </Button>
           {musicBotUrl && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon"
               className="top-icon music-top"
               title="打开音乐机器人"
               onClick={() => window.open(musicBotUrl, '_blank', 'noopener,noreferrer')}
             >
               <MusicIcon />
-            </button>
+            </Button>
           )}
           <button
             type="button"
@@ -1646,12 +1644,12 @@ export default function App() {
                 {channelPath.length > 0 ? channelPath.join(' › ') : '语音频道'}
               </div>
               <div className="toolbar-actions">
-                <button type="button" className="tool-btn" onClick={focusInfoCard}>
+<Button variant="outline" size="sm" onClick={focusInfoCard}>
                   频道设置
-                </button>
-                <button type="button" className="tool-btn" onClick={inviteCopy}>
+                </Button>
+<Button variant="outline" size="sm" onClick={inviteCopy}>
                   邀请成员
-                </button>
+                </Button>
               </div>
             </div>
             <div className="voice-body">
@@ -1889,7 +1887,7 @@ export default function App() {
                         ))}
                     </select>
                   )}
-                  <input
+<Input
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={(e) => {
@@ -1900,15 +1898,16 @@ export default function App() {
                     }}
                     placeholder={connected ? '输入消息，Enter 发送' : '请先连接'}
                     disabled={!connected}
+                    className="flex-1 h-10"
                   />
-                  <button
-                    type="button"
-                    className="primary"
+<Button
+                    variant="primary"
                     onClick={handleSend}
                     disabled={!connected}
+                    className="h-10 px-6"
                   >
                     发送
-                  </button>
+                  </Button>
                 </div>
               </>
             ) : (
@@ -2011,16 +2010,16 @@ export default function App() {
             )}
           </div>
           <div className="vb-actions">
-            <button
-              type="button"
-              className={`vb-btn${deafened ? ' on' : ''}`}
+<Button
+              variant={deafened ? 'primary' : 'outline'}
               onClick={toggleDeafen}
               title="Deafen：闭麦并静音所有输出（Ctrl+Shift+M）"
               aria-pressed={deafened}
+              className="vb-btn"
             >
               <HeadphoneIcon off={deafened} />
               <span>{deafened ? 'Deafen 中' : 'Deafen'}</span>
-            </button>
+            </Button>
           </div>
         </footer>
         <nav className="mobile-tabbar" aria-label="移动端导航">
@@ -2082,12 +2081,13 @@ export default function App() {
         case 'account':
           return (
             <SettingRow label="昵称">
-              <input
+              <Input
                 value={active?.nickname || ''}
                 onChange={(e) =>
                   active && patchTab(active.id, { nickname: e.target.value })
                 }
                 placeholder="你的昵称"
+                className="max-w-[300px] h-10"
               />
             </SettingRow>
           )
@@ -2188,14 +2188,12 @@ export default function App() {
                   </span>
                 }
               >
-                <input
-                  type="range"
+                <BrutalSlider
                   min={0}
                   max={200}
-                  value={Math.round(mic.state.outputVolume * 100)}
-                  onChange={(e) =>
-                    mic.setOutputVolume(Number(e.target.value) / 100)
-                  }
+                  value={[Math.round(mic.state.outputVolume * 100)]}
+                  onValueChange={(v) => mic.setOutputVolume((v[0] ?? 0) / 100)}
+                  className="max-w-[240px]"
                 />
               </SettingRow>
               <SettingRow label="通知音效（进出 / 私聊 / Poke）">
@@ -2263,7 +2261,7 @@ export default function App() {
             <>
               {(authRequired || gatewayToken) ? (
                 <SettingRow label="网关 Token">
-                  <input
+                  <Input
                     type="password"
                     value={gatewayToken}
                     onChange={(e) => {
@@ -2271,6 +2269,7 @@ export default function App() {
                       setGatewayToken(e.target.value)
                     }}
                     placeholder={authRequired ? '必填' : '可选'}
+                    className="max-w-[300px] h-10"
                   />
                 </SettingRow>
               ) : (
@@ -2324,9 +2323,9 @@ export default function App() {
               </button>
             ))}
             <div className="nav-spacer" />
-            <button type="button" className="nav-leave" onClick={leaveServer}>
+            <Button variant="danger" size="sm" className="nav-leave w-full" onClick={leaveServer}>
               断开连接
-            </button>
+            </Button>
           </aside>
           <section className="settings-content">
             <div className="settings-head">
@@ -2335,12 +2334,12 @@ export default function App() {
                 <p>{t.sub}</p>
               </div>
               <div className="settings-actions">
-                <button type="button" className="ghost" onClick={resetSettings}>
+                <Button variant="outline" size="sm" onClick={resetSettings}>
                   恢复默认
-                </button>
-                <button type="button" className="primary" onClick={saveSettings}>
+                </Button>
+                <Button variant="primary" size="sm" onClick={saveSettings}>
                   保存设置
-                </button>
+                </Button>
               </div>
             </div>
             <div className="setting-block">{renderContent()}</div>

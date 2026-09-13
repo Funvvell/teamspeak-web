@@ -1,0 +1,12 @@
+{
+  "$schema": "https://brutalistui.site/schema.json",
+  "style": "brutalism",
+  "tailwind": {
+    "config": "tailwind.config.js",
+    "css": "src/index.css"
+  },
+  "aliases": {
+    "components": "@shared/components",
+    "utils": "@shared/lib/utils"
+  }
+}

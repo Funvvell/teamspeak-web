@@ -5,7 +5,6 @@ import {
   Client,
   generateIdentity,
   identityFromString,
-  listClients,
   sendTextMessage,
   clientMove,
   poke as tsPoke,
