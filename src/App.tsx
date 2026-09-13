@@ -36,7 +36,7 @@ import {
   type LogItem,
   type RecentServer,
 } from './lib/utils'
-import { BellIcon, GlobeIcon, HeadphoneIcon, MicIcon, MusicIcon, PersonIcon, WaveBars } from './components/icons'
+import { BellIcon, GlobeIcon, HeadphoneIcon, LockIcon, MicIcon, MusicIcon, PersonIcon, SparklesIcon, WaveBars, ZapIcon } from './components/icons'
 import { Segmented, SettingRow, Switch } from './components/controls'
 import { ChannelListView } from './components/ChannelListView'
 
@@ -1172,6 +1172,13 @@ export default function App() {
     const hostError = fieldErrors.host
     const nickError = fieldErrors.nickname
 
+    const features = [
+      { icon: <LockIcon />, title: '端到端加密', desc: 'TS3 加密握手 · 频道流量 ECDH + EAX 加密' },
+      { icon: <WaveBars active />, title: '声控 VOX · 按键 PTT', desc: 'RNNoise 智能门控，抗键盘与风扇误触发' },
+      { icon: <SparklesIcon />, title: 'AI 降噪', desc: 'RNNoise 实时抑制稳态噪声，语音更干净' },
+      { icon: <ZapIcon />, title: '低延迟语音', desc: 'WebCodecs Opus 编解码 · 软件 AEC 回声消除' },
+    ]
+
     return (
       <div className="login-page">
         <div className="login-bg" aria-hidden="true">
@@ -1192,9 +1199,25 @@ export default function App() {
           </svg>
         </div>
         <div className="login-center">
-          <div className="brand login-brand-top">
-            <div className="brand-mark">TS</div>
-            <span>TeamSpeak Web</span>
+          <div className="login-hero">
+            <div className="brand login-brand-top">
+              <div className="brand-mark">TS</div>
+              <span>TeamSpeak Web</span>
+            </div>
+            <h1 className="hero-h1">TeamSpeak Web</h1>
+            <p className="hero-sub">浏览器语音客户端 · 免安装 · 即开即聊</p>
+            <div className="hero-features">
+              {features.map((f) => (
+                <div className="feature" key={f.title}>
+                  <span className="feature-icon">{f.icon}</span>
+                  <span className="feature-text">
+                    <span className="feature-title">{f.title}</span>
+                    <span className="feature-desc">{f.desc}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="hero-note">多端可用 · 音乐机器人一键接入 · 轻量免安装</p>
           </div>
           <div className={`login-card${connecting ? ' connecting' : ''}${lastFailed ? ' failed' : ''}`}>
             <h2>登录</h2>
