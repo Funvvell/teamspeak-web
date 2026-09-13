@@ -3247,19 +3247,19 @@ input[type="checkbox"] {
   z-index: 60;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: 10px;
   background: rgba(240, 246, 252, 0.42);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
 .music-frame-wrap {
-  width: min(1120px, 100%);
-  height: min(86vh, 900px);
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.72), rgba(247, 251, 254, 0.52));
   border: 1px solid rgba(255, 255, 255, 0.7);
-  border-radius: 22px;
+  border-radius: 18px;
   box-shadow: var(--glass-hi), 0 26px 64px rgba(42, 64, 88, 0.16), 0 0 0 1px rgba(49, 79, 108, 0.05);
   backdrop-filter: blur(26px) saturate(1.6);
   -webkit-backdrop-filter: blur(26px) saturate(1.6);
@@ -3299,10 +3299,19 @@ input[type="checkbox"] {
   font-size: 11.5px;
   color: var(--faint);
 }
-.music-frame {
+.music-frame-box {
   flex: 1;
   min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+}
+.music-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
+  height: 100%;
   border: none;
   background: #fff;
 }
@@ -3335,13 +3344,9 @@ input[type="checkbox"] {
   color: var(--accent);
 }
 @media (max-width: 720px) {
-  .music-overlay {
-    padding: 8px;
-    place-items: start center;
-  }
   .music-frame-wrap {
     width: 100%;
-    height: calc(100vh - 16px);
+    height: 100%;
   }
   .music-frame-sub {
     display: none;

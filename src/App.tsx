@@ -138,6 +138,8 @@ export default function App() {
   const [activeId, setActiveId] = useState(() => '')
   const [view, setView] = useState<AppView>('login')
   const [musicBotUrl, setMusicBotUrl] = useState('')
+  const [musicScale, setMusicScale] = useState(1)
+  const musicWrapRef = useRef<HTMLDivElement>(null)
   const [settingsNav, setSettingsNav] = useState<SettingsNav>('audio')
   const [draft, setDraft] = useState('')
   const [muted, setMuted] = useState(false)
@@ -237,6 +239,18 @@ export default function App() {
       .then((c) => setMusicBotUrl((c as { musicBotUrl?: string }).musicBotUrl || ''))
       .catch(() => undefined)
   }, [])
+
+  // 音乐 iframe 自适应缩放：把桌面布局（1024px 基准）等比缩进容器，窄屏不裁切
+  useEffect(() => {
+    if (view !== 'music') return
+    const el = musicWrapRef.current
+    if (!el) return
+    const fit = () => setMusicScale(Math.min(1, el.clientWidth / 1280))
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [view])
 
   useEffect(() => {
     if (!active?.host) return
@@ -2336,7 +2350,7 @@ export default function App() {
         renderSettings()
       ) : view === 'music' && connected ? (
         <div className="music-overlay">
-          <div className="music-frame-wrap">
+          <div className="music-frame-wrap" ref={musicWrapRef}>
             <div className="music-frame-head">
               <span className="music-frame-title">
                 <span className="music-title-icon"><MusicIcon /></span>
@@ -2348,12 +2362,21 @@ export default function App() {
               </button>
             </div>
             {musicBotUrl ? (
-              <iframe
-                className="music-frame"
-                src={musicBotUrl}
-                title="音乐机器人"
-                allow="microphone; autoplay; clipboard-write"
-              />
+              <div className="music-frame-box">
+                <iframe
+                  className="music-frame"
+                  src={musicBotUrl}
+                  title="音乐机器人"
+                  style={{
+                    width: `calc(100% / ${musicScale})`,
+                    height: `calc(100% / ${musicScale})`,
+                    transform: `scale(${musicScale})`,
+                    transformOrigin: 'top left',
+                    border: 'none',
+                  } as React.CSSProperties}
+                  allow="microphone; autoplay; clipboard-write"
+                />
+              </div>
             ) : (
               <div className="music-frame-empty">
                 <p>音乐机器人未配置</p>
