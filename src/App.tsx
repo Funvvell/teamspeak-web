@@ -39,6 +39,7 @@ import {
 import { BellIcon, GlobeIcon, HeadphoneIcon, LockIcon, MicIcon, MusicIcon, PersonIcon, SparklesIcon, WaveBars, ZapIcon } from './components/icons'
 import { Segmented, SettingRow, Switch } from './components/controls'
 import { ChannelListView } from './components/ChannelListView'
+import { WavesBackground } from './components/WavesBackground'
 
 interface ChatMsg {
   from: string
@@ -113,7 +114,7 @@ function emptyTab(partial?: Partial<ConnectionTab>): ConnectionTab {
   }
 }
 
-type AppView = 'login' | 'main' | 'settings' | 'music'
+type AppView = 'login' | 'main' | 'settings'
 type SettingsNav = 'account' | 'audio' | 'activation' | 'notify' | 'theme' | 'network'
 
 // 模块级小组件：避免在 App 内部定义导致每次渲染重挂载（输入框失焦）
@@ -138,8 +139,6 @@ export default function App() {
   const [activeId, setActiveId] = useState(() => '')
   const [view, setView] = useState<AppView>('login')
   const [musicBotUrl, setMusicBotUrl] = useState('')
-  const [musicScale, setMusicScale] = useState(1)
-  const musicWrapRef = useRef<HTMLDivElement>(null)
   const [settingsNav, setSettingsNav] = useState<SettingsNav>('audio')
   const [draft, setDraft] = useState('')
   const [muted, setMuted] = useState(false)
@@ -240,17 +239,7 @@ export default function App() {
       .catch(() => undefined)
   }, [])
 
-  // 音乐 iframe 自适应缩放：把桌面布局（1024px 基准）等比缩进容器，窄屏不裁切
-  useEffect(() => {
-    if (view !== 'music') return
-    const el = musicWrapRef.current
-    if (!el) return
-    const fit = () => setMusicScale(Math.min(1, el.clientWidth / 1280))
-    fit()
-    const ro = new ResizeObserver(fit)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [view])
+
 
   useEffect(() => {
     if (!active?.host) return
@@ -1181,23 +1170,7 @@ export default function App() {
 
     return (
       <div className="login-page">
-        <div className="login-bg" aria-hidden="true">
-          <svg className="bg-nodes" viewBox="0 0 900 560" fill="none">
-            <g className="node-server">
-              <circle cx="450" cy="270" r="34" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.6"/>
-              <rect x="436" y="252" width="28" height="5" rx="2.5" fill="currentColor" opacity="0.75"/>
-              <rect x="436" y="264" width="28" height="5" rx="2.5" fill="currentColor" opacity="0.45"/>
-              <rect x="436" y="276" width="28" height="5" rx="2.5" fill="currentColor" opacity="0.75"/>
-              <circle className="sonar-ring" cx="450" cy="270" r="34" stroke="currentColor" strokeWidth="1.4" fill="none"/>
-              <circle className="sonar-ring sr2" cx="450" cy="270" r="34" stroke="currentColor" strokeWidth="1.2" fill="none"/>
-              <circle className="sonar-ring sr3" cx="450" cy="270" r="34" stroke="currentColor" strokeWidth="1" fill="none"/>
-            </g>
-            <path d="M434 300 C 380 350 240 350 180 392" stroke="currentColor" strokeWidth="1.4" strokeDasharray="3 7" opacity="0.5"/>
-            <path d="M466 300 C 520 350 660 360 720 400" stroke="currentColor" strokeWidth="1.4" strokeDasharray="3 7" opacity="0.45"/>
-            <path d="M450 304 C 450 352 420 380 300 432" stroke="currentColor" strokeWidth="1.2" strokeDasharray="3 7" opacity="0.35"/>
-            <path d="M450 304 C 470 352 520 402 620 422" stroke="currentColor" strokeWidth="1.2" strokeDasharray="3 7" opacity="0.35"/>
-          </svg>
-        </div>
+        <WavesBackground />
         <div className="login-center">
           <div className="login-hero">
             <div className="brand login-brand-top">
@@ -1439,27 +1412,16 @@ export default function App() {
             />
             <kbd>Ctrl K</kbd>
           </div>
-          <button
-            type="button"
-            className="top-icon music-top"
-            title="音乐机器人"
-            onClick={() => setView('music')}
-          >
-            <MusicIcon />
-          </button>
-          <button
-            type="button"
-            className={`top-icon${soundsOn ? '' : ' off'}`}
-            title={soundsOn ? '通知音效开' : '通知音效关'}
-            onClick={() => {
-              setSoundsOn((v) => {
-                setSoundsEnabled(!v)
-                return !v
-              })
-            }}
-          >
-            <BellIcon on={soundsOn} />
-          </button>
+                    {musicBotUrl && (
+            <button
+              type="button"
+              className="top-icon music-top"
+              title="打开音乐机器人"
+              onClick={() => window.open(musicBotUrl, '_blank', 'noopener,noreferrer')}
+            >
+              <MusicIcon />
+            </button>
+          )}
           <button
             type="button"
             className="user-chip"
@@ -2360,54 +2322,9 @@ export default function App() {
 
   return (
     <div className="app">
-      <div className="bg-blobs" aria-hidden="true">
-        <i className="blob b1" />
-        <i className="blob b2" />
-        <i className="blob b3" />
-        <i className="blob b4" />
-        <i className="blob b5" />
-        <i className="blob b6" />
-        <i className="blob b7" />
-      </div>
+      <WavesBackground />
       {view === 'settings' ? (
         renderSettings()
-      ) : view === 'music' && connected ? (
-        <div className="music-overlay">
-          <div className="music-frame-wrap" ref={musicWrapRef}>
-            <div className="music-frame-head">
-              <span className="music-frame-title">
-                <span className="music-title-icon"><MusicIcon /></span>
-                音乐机器人
-              </span>
-              <span className="music-frame-sub">TSMusicBot Web 控制台</span>
-              <button type="button" className="icon-btn" onClick={() => setView('main')} title="关闭">
-                ×
-              </button>
-            </div>
-            {musicBotUrl ? (
-              <div className="music-frame-box">
-                <iframe
-                  className="music-frame"
-                  src={musicBotUrl}
-                  title="音乐机器人"
-                  style={{
-                    width: `calc(100% / ${musicScale})`,
-                    height: `calc(100% / ${musicScale})`,
-                    transform: `scale(${musicScale})`,
-                    transformOrigin: 'top left',
-                    border: 'none',
-                  } as React.CSSProperties}
-                  allow="microphone; autoplay; clipboard-write"
-                />
-              </div>
-            ) : (
-              <div className="music-frame-empty">
-                <p>音乐机器人未配置</p>
-                <p className="dim">在网关环境变量设置 <code>MUSIC_BOT_URL</code>（如 http://127.0.0.1:3000）并部署 TSMusicBot 后刷新。</p>
-              </div>
-            )}
-          </div>
-        </div>
       ) : connected ? (
         renderMain()
       ) : (
