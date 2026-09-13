@@ -954,21 +954,6 @@ input[type="checkbox"] {
 }
 
 /* —— 登录页动态背景：波形虚线流动 + 节点数据流 + 呼吸脉冲 —— */
-.bg-wave {
-  animation: wave-float 9s ease-in-out infinite;
-}
-.bg-wave path {
-  stroke-dasharray: 5 11;
-  animation: dash-flow 9s linear infinite;
-}
-.bg-wave path:nth-child(2) {
-  animation-duration: 12s;
-  animation-delay: -4s;
-}
-.bg-wave path:nth-child(3) {
-  animation-duration: 15s;
-  animation-delay: -9s;
-}
 .bg-nodes .node-server {
   transform-origin: 450px 270px;
   animation: node-breath 7s ease-in-out infinite;
@@ -988,19 +973,6 @@ input[type="checkbox"] {
   animation-duration: 26s;
   animation-delay: -18s;
 }
-.bg-nodes circle {
-  transform-origin: center;
-  transform-box: fill-box;
-  animation: node-pulse 6s ease-in-out infinite;
-}
-.bg-nodes circle:nth-of-type(2) { animation-delay: -1.6s; }
-.bg-nodes circle:nth-of-type(3) { animation-delay: -3.2s; }
-.bg-nodes circle:nth-of-type(4) { animation-delay: -4.4s; }
-.bg-nodes circle:nth-of-type(5) { animation-delay: -1s; }
-.bg-nodes circle:nth-of-type(6) { animation-delay: -5.2s; }
-.bg-nodes circle:nth-of-type(7) { animation-delay: -2.6s; }
-.bg-nodes circle:nth-of-type(8) { animation-delay: -3.8s; }
-.bg-nodes circle:nth-of-type(9) { animation-delay: -0.4s; }
 
 @keyframes dash-flow {
   from {
@@ -1030,6 +1002,32 @@ input[type="checkbox"] {
   50% {
     transform: scale(1.06);
     opacity: 1;
+  }
+}
+
+/* 声波扩散环：从服务器节点向外扩散（声波感） */
+.bg-nodes .sonar-ring {
+  transform-origin: center;
+  transform-box: fill-box;
+  opacity: 0;
+  animation: sonar-ring 5s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+.bg-nodes .sonar-ring.sr2 {
+  animation-duration: 6.5s;
+  animation-delay: -1.7s;
+}
+.bg-nodes .sonar-ring.sr3 {
+  animation-duration: 8s;
+  animation-delay: -3.3s;
+}
+@keyframes sonar-ring {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(3.8);
+    opacity: 0;
   }
 }
 
@@ -3229,11 +3227,9 @@ input[type="checkbox"] {
 @media (prefers-reduced-motion: reduce) {
   body,
   .blob,
-  .bg-wave,
-  .bg-wave path,
   .bg-nodes .node-server,
+  .bg-nodes .sonar-ring,
   .bg-nodes path,
-  .bg-nodes circle,
   .toast,
   .form-grid label.invalid input,
   .wave i,

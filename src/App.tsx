@@ -1153,32 +1153,20 @@ export default function App() {
     return (
       <div className="login-page">
         <div className="login-bg" aria-hidden="true">
-          <svg className="bg-wave" viewBox="0 0 1440 260" preserveAspectRatio="none">
-            <path d="M0 120 C 120 70 240 170 360 120 S 600 70 720 120 S 960 170 1080 120 S 1320 70 1440 120" fill="none" stroke="currentColor" strokeWidth="1.6" opacity="0.32"/>
-            <path d="M0 175 C 160 130 320 220 480 175 S 800 130 960 175 S 1280 220 1440 175" fill="none" stroke="currentColor" strokeWidth="1.2" opacity="0.2"/>
-            <path d="M0 205 C 140 175 280 235 420 205 S 700 175 840 205 S 1180 235 1320 205 S 1400 180 1440 205" fill="none" stroke="currentColor" strokeWidth="1" opacity="0.14"/>
-          </svg>
           <svg className="bg-nodes" viewBox="0 0 900 560" fill="none">
             <g className="node-server">
               <circle cx="450" cy="270" r="34" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.6"/>
               <rect x="436" y="252" width="28" height="5" rx="2.5" fill="currentColor" opacity="0.75"/>
               <rect x="436" y="264" width="28" height="5" rx="2.5" fill="currentColor" opacity="0.45"/>
               <rect x="436" y="276" width="28" height="5" rx="2.5" fill="currentColor" opacity="0.75"/>
+              <circle className="sonar-ring" cx="450" cy="270" r="34" stroke="currentColor" strokeWidth="1.4" fill="none"/>
+              <circle className="sonar-ring sr2" cx="450" cy="270" r="34" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+              <circle className="sonar-ring sr3" cx="450" cy="270" r="34" stroke="currentColor" strokeWidth="1" fill="none"/>
             </g>
             <path d="M434 300 C 380 350 240 350 180 392" stroke="currentColor" strokeWidth="1.4" strokeDasharray="3 7" opacity="0.5"/>
             <path d="M466 300 C 520 350 660 360 720 400" stroke="currentColor" strokeWidth="1.4" strokeDasharray="3 7" opacity="0.45"/>
             <path d="M450 304 C 450 352 420 380 300 432" stroke="currentColor" strokeWidth="1.2" strokeDasharray="3 7" opacity="0.35"/>
             <path d="M450 304 C 470 352 520 402 620 422" stroke="currentColor" strokeWidth="1.2" strokeDasharray="3 7" opacity="0.35"/>
-            <circle cx="180" cy="392" r="9" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.5"/>
-            <circle cx="720" cy="400" r="9" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.5"/>
-            <circle cx="300" cy="432" r="7" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.4"/>
-            <circle cx="620" cy="422" r="7" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.4"/>
-            <circle cx="162" cy="458" r="6" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.2"/>
-            <circle cx="752" cy="456" r="6" fill="#EEF4FA" stroke="currentColor" strokeWidth="1.2"/>
-            <circle cx="322" cy="352" r="2.5" fill="currentColor" opacity="0.5"/>
-            <circle cx="588" cy="356" r="2.5" fill="currentColor" opacity="0.5"/>
-            <circle cx="452" cy="196" r="2.5" fill="currentColor" opacity="0.45"/>
-            <circle cx="410" cy="210" r="2" fill="currentColor" opacity="0.35"/>
           </svg>
         </div>
         <div className="login-center">
