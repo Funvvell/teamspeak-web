@@ -3740,3 +3740,99 @@ textarea:focus,
   flex: 1 1 100%;
   align-items: center;
 }
+
+/* ================================================================
+   字体放大 + 简洁化（参考用户设计稿：大字号、清晰层级、留白）
+   ================================================================ */
+.msg {
+  font-size: 14px;
+  line-height: 1.55;
+  padding: 8px 10px;
+}
+.channel-name {
+  font-size: 14px;
+}
+.channel-head {
+  font-size: 13.5px;
+}
+.channel-meta {
+  font-size: 12px;
+}
+.channel-hint {
+  font-size: 11px;
+}
+.tab {
+  font-size: 13.5px;
+}
+.tool-btn {
+  font-size: 13.5px;
+}
+.voice-title-row h2 {
+  font-size: 19px;
+}
+.focus-name {
+  font-size: 16.5px;
+}
+.field-label {
+  font-size: 13.5px;
+}
+.login-card h2 {
+  font-size: 28px;
+}
+.login-sub {
+  font-size: 14.5px;
+}
+.top-search input {
+  font-size: 13.5px;
+}
+.user-channel {
+  font-size: 12px;
+}
+.member-list {
+  font-size: 13px;
+}
+.activity-text {
+  font-size: 12px;
+}
+.server-name {
+  font-size: 15px;
+}
+.section-title {
+  font-size: 13px;
+}
+.input-wrap input,
+.login-card input,
+.settings-content input,
+.chat-input input,
+textarea {
+  font-size: 14px;
+}
+.voice-sub {
+  font-size: 12.5px;
+}
+.focus-status {
+  font-size: 12.5px;
+}
+.info-card {
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.tag {
+  font-size: 12px;
+}
+.channel-desc {
+  font-size: 13px;
+}
+/* 留白与呼吸感：卡片/列表内边距适度加大 */
+.focus-card,
+.info-card {
+  padding: 14px 16px;
+}
+.member-chip {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.activity-item {
+  padding: 7px 8px;
+  font-size: 13.5px;
+}

@@ -273,6 +273,44 @@ MUSIC_BOT_URL=http://127.0.0.1:3000 npm start
 
 4. 刷新 Web 客户端 → 连接服务器 → 顶栏 🎵 → 在嵌入的控制台内登录机器人账号（独立会话，与 Web 客户端互不干扰）→ 搜索点歌，频道内所有人即可听到音乐。
 
+### 🔒 HTTPS 部署：音乐机器人 Mixed Content 白屏
+
+Web 客户端通过 **HTTPS** 访问时，浏览器会拦截 iframe 内加载的 **HTTP** 页面（`Mixed Content` 报错，音乐面板白屏）：
+
+> The page at 'https://你的IP:8443/' was loaded over HTTPS, but requested an insecure frame 'http://你的IP:3000/'. This request has been blocked; the content must be served over HTTPS.
+
+**根因**：浏览器安全策略——HTTPS 页面不允许嵌入 HTTP 内容。解决思路是让机器人 WebUI 也走 HTTPS。两种方式任选：
+
+**方式 A：Nginx 给机器人单独加 TLS 反代（推荐，不改机器人代码）**
+
+机器人本身仍监听 `3000`（HTTP），用 Nginx 在独立端口（如 `3001`）提供 HTTPS，并复用 Web 客户端同一张证书：
+
+```nginx
+server {
+    listen 3001 ssl;
+    server_name 你的服务器IP或域名;
+    ssl_certificate     /etc/letsencrypt/live/你的域名/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/你的域名/privkey.pem;
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}
+```
+
+然后把网关的 `MUSIC_BOT_URL` 指向 HTTPS 地址（需重新构建、重启网关）：
+
+```bash
+MUSIC_BOT_URL=https://你的IP或域名:3001 npm start
+```
+
+**方式 B：机器人自身启用 HTTPS**（无 Nginx 环境时）——给机器人 `src/web/server.ts` 加 `https.createServer` 支持（环境变量提供证书路径，端口改用 `3001`），证书同样复用 Web 客户端那份。
+
+> 提示：自签证书会在浏览器提示不受信任，建议使用 Let's Encrypt（域名）或企业内部 CA。
+
 ### 常见问题
 
 | 现象 | 处理 |
@@ -280,6 +318,7 @@ MUSIC_BOT_URL=http://127.0.0.1:3000 npm start
 | 顶栏没有 🎵 按钮 | 网关未设置 `MUSIC_BOT_URL` 或未重启 |
 | 面板提示「音乐机器人未配置」 | 同左，检查环境变量与网关日志 |
 | iframe 空白 / 拒绝连接 | 机器人未启动；`MUSIC_BOT_URL` 地址浏览器打不开；地址不能填 `localhost`（会指向访客自己的电脑） |
+| iframe 白屏且报 `Mixed Content` | HTTPS 页面不能嵌 HTTP 页面：按上方「HTTPS 部署」方式 A/B 给机器人开 HTTPS，并把 `MUSIC_BOT_URL` 改为 `https://…` |
 | iframe 显示「拒绝连接 / refused to connect」 | 机器人未放开 iframe 防护（`ALLOW_IFRAME=1`） |
 | 登录 401 | 在机器人 WebUI（直接访问 `MUSIC_BOT_URL`）确认账号密码 |
 | 搜索无结果 | 音源需在机器人 WebUI 扫码登录 / 被限流 |
