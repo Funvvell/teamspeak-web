@@ -31,8 +31,8 @@ const hash = (n: number) => {
 
 export function BlinkingSquares({
   direction = 'right',
-  gridSize = 52,
-  squareSize = 0.57,
+  gridSize = 60,
+  squareSize = 0.42,
   fadeStart = 0.65,
   fadeEnd = 1,
   falloff = 1.25,

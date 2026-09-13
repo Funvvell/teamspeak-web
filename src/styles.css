@@ -3855,3 +3855,191 @@ textarea {
     animation: none;
   }
 }
+/* ===== 通用交互动效 ===== */
+/* 可点击控件：统一过渡曲线 */
+.channel-head,
+.member-chip,
+.user-row,
+.tab,
+.side-tab,
+.tool-btn,
+.vb-btn,
+.segmented button,
+.context-menu button,
+.context-item > button,
+.recent-list li button,
+.theme-option,
+.back-btn,
+.crumb,
+.new-msg-pill,
+.guest-link,
+.reconnect-actions button,
+.setting-row,
+.top-icon,
+.collapse-btn,
+.section-arrow,
+.insecure-close,
+.tab-close,
+.clear-btn,
+.link-btn,
+.encrypt-row button {
+  transition:
+    transform 0.16s var(--ease-out),
+    box-shadow 0.2s var(--ease-out),
+    background-color 0.2s var(--ease-out),
+    border-color 0.2s var(--ease-out),
+    color 0.2s var(--ease-out),
+    opacity 0.2s var(--ease-out),
+    filter 0.2s var(--ease-out);
+}
+
+/* 悬停：轻微上浮 + 提升阴影 */
+.channel-head:hover,
+.member-chip:hover,
+.user-row:hover,
+.tab:hover,
+.side-tab:hover,
+.tool-btn:hover,
+.vb-btn:hover,
+.recent-list li button:hover,
+.theme-option:hover,
+.back-btn:hover,
+.crumb:hover,
+.new-msg-pill:hover,
+.guest-link:hover,
+.top-icon:hover {
+  transform: translateY(-1px);
+}
+
+.channel-head:hover, .member-chip:hover, .user-row:hover {
+  box-shadow: 0 4px 14px rgba(88, 101, 242, 0.14);
+}
+
+/* 按下：轻微压缩反馈 */
+button:not(:disabled):active,
+.tab:active,
+.side-tab:active,
+.tool-btn:active,
+.vb-btn:active,
+.channel-head:active,
+.member-chip:active {
+  transform: scale(0.965) !important;
+}
+
+/* 主按钮：悬停增强（渐变微移 + 高光） */
+.login-cta button,
+.primary,
+.reconnect-actions .primary {
+  transition:
+    transform 0.18s var(--ease-out),
+    box-shadow 0.22s var(--ease-out),
+    filter 0.22s var(--ease-out);
+}
+
+.login-cta button:hover:not(:disabled),
+.primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(82, 110, 255, 0.35);
+  filter: brightness(1.04);
+}
+
+/* 视图 / 弹层入场 */
+.main-view,
+.settings-view {
+  animation: view-in 0.32s var(--ease-out) both;
+}
+
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.context-menu,
+.toast,
+.shortcut-modal,
+.shortcut-overlay,
+.music-frame-empty,
+.error-box,
+.ok-box,
+.empty {
+  animation: pop-in 0.22s var(--ease-out) both;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 顶部消息浮条滑入 */
+.reconnect-bar,
+.insecure-bar {
+  animation: bar-in 0.3s var(--ease-out) both;
+}
+
+@keyframes bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 侧栏数字徽标弹跳 */
+.section-count,
+.member-count,
+.unread-dot,
+.side-badge {
+  animation: count-pop 0.28s var(--ease-spring) both;
+}
+
+@keyframes count-pop {
+  from {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* 开关滑块 / 输入过渡补全 */
+.switch i {
+  transition: transform 0.2s var(--ease-out), background-color 0.2s var(--ease-out);
+}
+
+/* 语音状态徽标过渡 */
+.vb-mic .vb-ring,
+.badge,
+.tag,
+.dot {
+  transition: background-color 0.25s var(--ease-out), color 0.25s var(--ease-out), border-color 0.25s var(--ease-out), transform 0.25s var(--ease-out);
+}
+
+/* 尊重减弱动态偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .channel-head, .member-chip, .user-row, .tab, .side-tab, .tool-btn, .vb-btn,
+  .segmented button, .context-menu button, .recent-list li button, .theme-option,
+  .back-btn, .crumb, .new-msg-pill, .guest-link, .top-icon, .section-count,
+  .member-count, .unread-dot, .side-badge, .switch i, .main-view, .settings-view,
+  .context-menu, .toast, .shortcut-modal, .error-box, .ok-box, .empty,
+  .reconnect-bar, .insecure-bar, .login-cta button, .primary {
+    animation: none !important;
+    transition: none !important;
+  }
+}

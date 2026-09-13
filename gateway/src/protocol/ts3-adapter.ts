@@ -129,8 +129,8 @@ export function createTs3Adapter(
     }
   }
 
-  function upsertClient(c: TsClientInfo) {
-    const mapped = mapClient(c)
+  function upsertClient(c: ClientInfo) {
+    const mapped = c
     const idx = clients.findIndex((x) => x.id === mapped.id)
     if (idx >= 0) {
       clients[idx] = { ...clients[idx], ...mapped, isTalking: clients[idx].isTalking }
@@ -167,12 +167,107 @@ export function createTs3Adapter(
     )
   }
 
-  async function refreshFromServer(c: Client) {
-    // --- channels ---
-    let loadedChannels = false
+  /** 快速首屏：whoami + clientlist + 自身频道（3 条命令，1 秒内完成） */
+  async function quickRefresh(c: Client): Promise<{ serverName?: string }> {
+    let serverName: string | undefined
+
+    // whoami：身份 / 所在频道 / 服务器名（必须，最先发）
+    try {
+      const who = await c.execCommandWithResponse('whoami')
+      const row = who[0]
+      if (row) {
+        if (row.client_id) selfId = toNumber(row.client_id, selfId)
+        if (row.client_channel_id) {
+          selfChannelId = toNumber(row.client_channel_id, selfChannelId)
+        }
+        if (row.virtualserver_name) serverName = row.virtualserver_name
+        const nick = row.client_nickname || nickname
+        const commander =
+          row.client_channel_commander === '1' ||
+          row.client_is_channel_commander === '1'
+        const me = clients.find((x) => x.id === selfId)
+        if (me) {
+          me.channelId = selfChannelId
+          me.nickname = nick
+          if (commander) me.isCommander = true
+        } else {
+          clients.push({
+            id: selfId,
+            nickname: nick,
+            channelId: selfChannelId,
+            isTalking: false,
+            isMuted: false,
+            isCommander: commander || undefined,
+          })
+        }
+      }
+    } catch {
+      // optional
+    }
+
+    // clientlist：在线成员（受限服务器可能拒绝，事件驱动兜底）
+    try {
+      const rawClients = await c.execCommandWithResponse('clientlist -uid -away -voice -groups')
+      const mapped = rawClients
+        .filter((cl) => toNumber(cl.client_type) === 0 || toNumber(cl.clid) === selfId)
+        .map((cl) => {
+          const m: ClientInfo = {
+            id: toNumber(cl.clid),
+            nickname: cl.client_nickname ?? '',
+            channelId: toNumber(cl.cid),
+            isTalking: false,
+            isMuted: false,
+          }
+          if (parseBool(cl.client_away)) m.isAway = true
+          if (parseBool(cl.client_input_muted)) {
+            m.isInputMuted = true
+            m.isMuted = true
+          }
+          if (parseBool(cl.client_output_muted)) m.isOutputMuted = true
+          if (cl.client_country && /^[A-Za-z]{2}$/.test(cl.client_country)) {
+            m.country = cl.client_country.toUpperCase()
+          }
+          return m
+        })
+      if (mapped.length > 0) {
+        for (const m of mapped) upsertClient(m)
+      }
+    } catch {
+      // keep event-driven clients
+    }
+
+    // 自身所在频道详情（补全频道树最少一个节点）
+    if (selfChannelId > 0 && !channels.some((ch) => ch.id === selfChannelId)) {
+      await sleep(120)
+      try {
+        const rows = await c.execCommandWithResponse(`channelinfo cid=${selfChannelId}`, 3000)
+        const row = rows[0]
+        if (row?.channel_name) {
+          const pid = toNumber(row.pid, 0)
+          channels.push({
+            id: selfChannelId,
+            name: row.channel_name,
+            parentId: pid > 0 ? pid : null,
+            maxClients: parseMaxClients(row.channel_maxclients),
+            isDefault: false,
+            order: toNumber(row.channel_order, selfChannelId),
+          })
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return { serverName }
+  }
+
+  /** 后台渐进：频道树全量 + 成员细节（不阻塞连接返回，慢速防 flood） */
+  async function backgroundFullRefresh(c: Client) {
+    // 1) 先试 channellist（多数服务器可用）
+    let gotTree = false
     try {
       const rawChannels = await c.execCommandWithResponse('channellist -flags')
-      channels = rawChannels.map((row) => {
+      const parsed = rawChannels.map((row) => {
         const pid = toNumber(row.cpid ?? row.pid, 0)
         const id = toNumber(row.cid ?? row.channel_id)
         return {
@@ -184,19 +279,23 @@ export function createTs3Adapter(
           order: toNumber(row.channel_order, id),
         }
       })
-      loadedChannels = channels.length > 0
+      if (parsed.length > 0) {
+        channels = parsed
+        gotTree = true
+      }
     } catch {
-      // Restricted servers deny channellist (or flood-protect it)
+      // restricted servers deny channellist
     }
 
-    // Rate-limited probe — many servers ban floods (error 524)
-    if (!loadedChannels) {
+    // 2) 受限服务器：慢速逐频道扫描（串行 + sleep，防 flood 524）
+    if (!gotTree) {
       const maxScan = Number(process.env.TS_CHANNEL_SCAN_MAX || 25)
-      const delayMs = Number(process.env.TS_CHANNEL_SCAN_DELAY_MS || 200)
+      const delayMs = Number(process.env.TS_CHANNEL_SCAN_DELAY_MS || 150)
       const stopAfterMiss = Number(process.env.TS_CHANNEL_SCAN_MISS || 10)
-      const found: RawChannel[] = []
+      const found: RawChannel[] = [...channels]
       let miss = 0
       for (let id = 1; id <= maxScan && miss < stopAfterMiss; id++) {
+        if (found.some((ch) => ch.id === id)) continue
         await sleep(delayMs)
         try {
           const rows = await c.execCommandWithResponse(`channelinfo cid=${id}`, 3000)
@@ -231,64 +330,20 @@ export function createTs3Adapter(
       const lobby = channels.find((ch) => ch.id === 1) ?? channels[0]
       if (lobby) lobby.isDefault = true
     }
+    emitState()
 
-    // --- clients ---
-    await sleep(80)
-    try {
-      const rawClients = await listClients(c)
-      const mapped = rawClients
-        .filter((cl) => cl.type === 0 || cl.id === selfId)
-        .map(mapClient)
-      if (mapped.length > 0) {
-        for (const m of mapped) {
-          const idx = clients.findIndex((x) => x.id === m.id)
-          if (idx >= 0) clients[idx] = { ...clients[idx], ...m }
-          else clients.push(m)
-        }
-      }
-    } catch {
-      // keep event-driven clients
-    }
+    // 3) 成员细节（频道管理员 / 国家 / 静音）——错开 flood 窗口
+    await sleep(1200)
+    await probeClientDetails(c)
+    emitState()
+  }
 
-    // --- self via whoami ---
-    await sleep(80)
-    try {
-      const who = await c.execCommandWithResponse('whoami')
-      const row = who[0]
-      if (row) {
-        if (row.client_id) selfId = toNumber(row.client_id, selfId)
-        if (row.client_channel_id) {
-          selfChannelId = toNumber(row.client_channel_id, selfChannelId)
-        }
-        const nick = row.client_nickname || nickname
-        const commander =
-          row.client_channel_commander === '1' ||
-          row.client_is_channel_commander === '1'
-        const me = clients.find((x) => x.id === selfId)
-        if (me) {
-          me.channelId = selfChannelId
-          me.nickname = nick
-          if (commander) me.isCommander = true
-        } else {
-          clients.push({
-            id: selfId,
-            nickname: nick,
-            channelId: selfChannelId,
-            isTalking: false,
-            isMuted: false,
-            isCommander: commander || undefined,
-          })
-        }
-      }
-    } catch {
-      // optional
-    }
-
-    // Probe a few clients for channel commander / away / mute flags (optional, rate-limited)
-    const probeIds = clients.filter((x) => x.id !== selfId).slice(0, 8).map((x) => x.id)
-    if (selfId) probeIds.unshift(selfId)
-    for (const id of probeIds) {
-      await sleep(80)
+  /** 成员细节补全：串行慢速 probe（原并发方案会触发服务器 flood ban） */
+  async function probeClientDetails(c: Client) {
+    const ids = clients.filter((x) => x.id !== selfId).slice(0, 8).map((x) => x.id)
+    if (selfId) ids.unshift(selfId)
+    for (const id of ids) {
+      await sleep(100)
       try {
         const rows = await c.execCommandWithResponse(`clientinfo clid=${id}`, 2500)
         const row = rows[0]
@@ -300,9 +355,7 @@ export function createTs3Adapter(
           ) {
             cl.isCommander = true
           }
-          if (row.client_away === '1' || row.client_away_message !== undefined && row.client_away === '1') {
-            cl.isAway = true
-          }
+          if (row.client_away === '1') cl.isAway = true
           if (row.client_input_muted === '1' || row.client_input_hardware === '0') {
             cl.isInputMuted = true
             cl.isMuted = true
@@ -318,33 +371,7 @@ export function createTs3Adapter(
         // restricted servers
       }
     }
-
-    // Ensure we know at least the channel we are in
-    if (selfChannelId > 0 && !channels.some((ch) => ch.id === selfChannelId)) {
-      await sleep(80)
-      try {
-        const rows = await c.execCommandWithResponse(
-          `channelinfo cid=${selfChannelId}`,
-          3000,
-        )
-        const row = rows[0]
-        if (row?.channel_name) {
-          const pid = toNumber(row.pid, 0)
-          channels.push({
-            id: selfChannelId,
-            name: row.channel_name,
-            parentId: pid > 0 ? pid : null,
-            maxClients: parseMaxClients(row.channel_maxclients),
-            isDefault: false,
-            order: toNumber(row.channel_order, selfChannelId),
-          })
-        }
-      } catch {
-        // ignore
-      }
-    }
   }
-
   function wireEvents(c: Client) {
     c.on('connected', () => {
       // tree refresh happens after waitConnected in connect()
@@ -385,7 +412,7 @@ export function createTs3Adapter(
     })
 
     c.on('clientEnter', (info) => {
-      upsertClient(info)
+      upsertClient(mapClient(info))
       emitState()
       emit({
         type: 'event_log',
@@ -512,21 +539,15 @@ export function createTs3Adapter(
       selfId = client.clientID()
       selfChannelId = Number(client.channelID()) || 0
 
-      // Welcome notifications + flood window: give the server a moment
-      await sleep(Number(process.env.TS_WELCOME_WAIT_MS || 1500))
-      await refreshFromServer(client)
+      // Welcome notifications + flood window: brief pause for the server to settle
+      await sleep(Number(process.env.TS_WELCOME_WAIT_MS || 300))
+      const fresh = await quickRefresh(client)
       emitState()
+      // 后台渐进补全频道树与成员细节（不阻塞首屏）
+      void backgroundFullRefresh(client).catch(() => {})
 
-      let serverName = addr
+      let serverName = fresh.serverName || addr
       let welcome = 'Connected via real TeamSpeak 3 protocol'
-      try {
-        const info = await client.execCommandWithResponse('whoami')
-        const row = info[0]
-        // whoami is more reliable than serverinfo on restricted servers
-        if (row?.virtualserver_name) serverName = row.virtualserver_name
-      } catch {
-        // optional
-      }
       try {
         const info = await client.execCommandWithResponse('serverinfo')
         const row = info[0]
