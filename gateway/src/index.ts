@@ -7,13 +7,6 @@ import { Session } from './session'
 import { createMockAdapter } from './protocol/mock-adapter'
 import { createTs3Adapter } from './protocol/ts3-adapter'
 import type { AdapterFactory } from './protocol/adapter'
-import {
-  musicEnabled,
-  musicBotUrl,
-  isMusicPath,
-  handleMusicHttp,
-  handleMusicWs,
-} from './music-proxy'
 
 process.on('uncaughtException', (err) => {
   console.error('[gateway] uncaughtException', err)
@@ -65,12 +58,6 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) {
   const raw = req.url || '/'
   const url = new URL(raw, `http://${req.headers.host || 'localhost'}`)
   const pathname = url.pathname
-
-  // Music bot reverse proxy: /music/api/* + /music/ws
-  if (isMusicPath(pathname)) {
-    handleMusicHttp(req, res)
-    return
-  }
 
   if (pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -134,11 +121,6 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD })
 
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
-  // Music bot realtime proxy (/music/ws)
-  if (isMusicPath(url.pathname)) {
-    handleMusicWs(req, socket, head)
-    return
-  }
   if (url.pathname !== '/ws') {
     socket.destroy()
     return
@@ -182,11 +164,6 @@ server.listen(PORT, HOST, () => {
   )
   if (DEFAULT_HOST) {
     console.log(`[gateway] default server ${DEFAULT_HOST}:${DEFAULT_PORT}`)
-  }
-  if (musicEnabled()) {
-    console.log(`[gateway] music bot proxy -> ${musicBotUrl()}`)
-  } else {
-    console.log('[gateway] music bot proxy disabled (set MUSIC_BOT_URL to enable)')
   }
   if (!fs.existsSync(DIST)) {
     console.log(
