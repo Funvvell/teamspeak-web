@@ -281,6 +281,7 @@ MUSIC_BOT_URL=http://127.0.0.1:3000 npm start
 | iframe 显示「拒绝连接 / refused to connect」 | 机器人未放开 iframe 防护（`ALLOW_IFRAME=1`） |
 | 登录 401 | 在机器人 WebUI（直接访问 `MUSIC_BOT_URL`）确认账号密码 |
 | 搜索无结果 | 音源需在机器人 WebUI 扫码登录 / 被限流 |
+| 登录弹窗没有「以游客身份进入」 | 机器人游客模式未开启：编辑机器人 data/config.json，guestMode.enabled 设为 	rue 后重启 |
 
 ### 安全注意
 
