@@ -10,6 +10,10 @@ services:
       - PORT=8080
       - HOST=0.0.0.0
       - PROTOCOL=ts3
+      # 登录页预填的默认服务器地址（在 .env 中设置 DEFAULT_HOST=你的TS服务器IP，例如 1.2.3.4）
+      - DEFAULT_HOST=${DEFAULT_HOST:-}
+      # 音乐机器人地址（可选，启用顶栏 🎵 面板；在 .env 中设置 MUSIC_BOT_URL=http://机器人IP:3000）
+      - MUSIC_BOT_URL=${MUSIC_BOT_URL:-}
     volumes:
       - tsweb-data:/app/gateway/data
 

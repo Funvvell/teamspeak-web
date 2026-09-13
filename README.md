@@ -80,6 +80,8 @@ TeamSpeak Web 通过一个轻量的 **Node.js WebSocket 网关**桥接 TeamSpeak
 ```bash
 git clone https://github.com/Funvvell/teamspeak-web.git
 cd teamspeak-web
+# （可选）在 .env 中预填你的 TS 服务器地址，登录页会默认带上：
+echo 'DEFAULT_HOST=你的TS服务器IP（如 1.2.3.4）' >> .env
 docker compose up -d --build
 # 浏览器访问 http://<服务器IP>:8080
 ```

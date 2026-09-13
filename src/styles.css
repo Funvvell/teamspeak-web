@@ -3352,3 +3352,255 @@ input[type="checkbox"] {
     display: none;
   }
 }
+
+/* ================================================================
+   UI 高级化升级（参考 Glass UI / iOS Liquid Glass / 2025 Web 趋势）
+   —— 全部为追加增强，不改变既有结构与配色
+   ================================================================ */
+:root {
+  --grad-accent: linear-gradient(135deg, #5aa7e8 0%, #4f86c2 55%, #7c86d8 100%);
+  --grad-title: linear-gradient(105deg, #3f7cc0 0%, #5a6fc4 60%, #7a74c9 100%);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --shadow-hover: 0 18px 46px rgba(42, 64, 88, 0.13), 0 2px 8px rgba(42, 64, 88, 0.06);
+  --ring-focus: 0 0 0 3px rgba(79, 134, 194, 0.16);
+}
+
+/* ---------- 全局微交互 ---------- */
+button,
+.tool-btn,
+.top-icon,
+.icon-btn,
+.tab,
+.tag,
+.member-chip,
+.channel-head,
+.activity-item,
+.msg,
+.reconnect-bar {
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background 0.22s var(--ease-out),
+    border-color 0.22s var(--ease-out),
+    color 0.22s var(--ease-out),
+    box-shadow 0.3s var(--ease-out),
+    transform 0.22s var(--ease-out),
+    opacity 0.22s var(--ease-out);
+}
+button:not(:disabled):active,
+.tool-btn:active,
+.top-icon:active,
+.icon-btn:active,
+.channel-head:active,
+.tag:active,
+.tab:active {
+  transform: translateY(0.5px) scale(0.97);
+}
+
+/* ---------- 主按钮：雾蓝渐变 + 玻璃高光 ---------- */
+.primary {
+  background: var(--grad-accent);
+  border-color: transparent;
+  box-shadow:
+    0 6px 20px rgba(63, 126, 190, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  transition:
+    box-shadow 0.3s var(--ease-out),
+    transform 0.2s var(--ease-out),
+    filter 0.25s ease;
+}
+button.primary:hover:not(:disabled) {
+  background: var(--grad-accent);
+  filter: brightness(1.06) saturate(1.04);
+  box-shadow:
+    0 10px 28px rgba(63, 126, 190, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+/* ---------- 渐变标题文字（雾蓝 → 青蓝 → 淡紫） ---------- */
+.voice-title-row h2,
+.focus-name {
+  background: var(--grad-title);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.focus-name em {
+  -webkit-text-fill-color: var(--dim);
+  color: var(--dim);
+  background: none;
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* ---------- 聚焦成员卡：hover 上浮 + 说话呼吸光晕 ---------- */
+.focus-card {
+  transition:
+    box-shadow 0.35s var(--ease-out),
+    border-color 0.3s ease,
+    transform 0.35s var(--ease-out);
+}
+.focus-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-hover);
+}
+.focus-card.talking {
+  border-color: rgba(46, 158, 91, 0.4);
+  animation: focus-breathe 2.8s ease-in-out infinite;
+}
+@keyframes focus-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(46, 158, 91, 0.18),
+      0 14px 36px rgba(46, 158, 91, 0.1),
+      var(--glass-hi);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(46, 158, 91, 0.38),
+      0 20px 48px rgba(46, 158, 91, 0.18),
+      var(--glass-hi);
+  }
+}
+
+/* ---------- 成员 chip：hover 上浮、说话渐变描边 ---------- */
+.member-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--glass-hi), 0 10px 26px rgba(42, 64, 88, 0.1);
+}
+.member-chip.talking {
+  border-color: rgba(46, 158, 91, 0.4);
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.9),
+    rgba(233, 249, 242, 0.68)
+  );
+}
+
+/* ---------- 信息卡 hover 光影 ---------- */
+.info-card {
+  transition:
+    box-shadow 0.35s var(--ease-out),
+    transform 0.35s var(--ease-out),
+    border-color 0.3s ease;
+}
+.info-card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+/* ---------- 标签 chip ---------- */
+.tag:hover {
+  background: rgba(255, 255, 255, 0.74);
+  border-color: rgba(79, 134, 194, 0.28);
+  color: var(--accent-ink);
+  transform: translateY(-1px);
+}
+
+/* ---------- 工具按钮 / 顶栏图标 hover 提亮 ---------- */
+.tool-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: var(--glass-hi), 0 6px 16px rgba(42, 64, 88, 0.08);
+}
+.top-icon:hover:not(:disabled),
+.icon-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: var(--glass-hi), 0 6px 16px rgba(42, 64, 88, 0.08);
+}
+
+/* ---------- 频道行 hover 过渡 + 左侧光条 ---------- */
+.channel-head {
+  position: relative;
+}
+.channel-head::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 22%;
+  bottom: 22%;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--grad-accent);
+  opacity: 0;
+  transform: scaleY(0.4);
+  transition:
+    opacity 0.25s var(--ease-out),
+    transform 0.25s var(--ease-out);
+}
+.channel:hover .channel-head::before,
+.channel.active .channel-head::before,
+.channel.selected .channel-head::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+.channel.active .channel-head {
+  background: linear-gradient(
+    90deg,
+    rgba(79, 134, 194, 0.16),
+    rgba(79, 134, 194, 0.05)
+  );
+}
+
+/* ---------- 输入框聚焦光环 ---------- */
+input:focus,
+select:focus,
+textarea:focus,
+.chat-input input:focus {
+  outline: none;
+  border-color: rgba(79, 134, 194, 0.45);
+  box-shadow: var(--ring-focus);
+}
+
+/* ---------- 细滚动条（浅蓝玻璃） ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(79, 134, 194, 0.35) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(79, 134, 194, 0.28);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(79, 134, 194, 0.45);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- 顶栏：半透明玻璃渐变条 ---------- */
+.topbar {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.78),
+    rgba(247, 251, 254, 0.55)
+  );
+}
+
+/* ---------- 降低动态效果偏好 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .focus-card.talking {
+    animation: none;
+  }
+  button,
+  .tool-btn,
+  .top-icon,
+  .icon-btn,
+  .tab,
+  .tag,
+  .member-chip,
+  .channel-head,
+  .activity-item,
+  .msg,
+  .reconnect-bar {
+    transition-duration: 0.01ms !important;
+  }
+}
