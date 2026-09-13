@@ -82,8 +82,18 @@ body,
 }
 
 body {
-  background: linear-gradient(180deg, #f5f8fb 0%, #edf2f7 100%);
+  /* 动态背景：柔和晕染慢速流动（白占比高、低饱和雾蓝青蓝 + 紫点缀，不刺眼） */
+  background: linear-gradient(
+    135deg,
+    #f9fbfd 0%,
+    #eef3f9 22%,
+    #f5f8fb 45%,
+    #e9f0f8 68%,
+    #f8fafd 100%
+  );
+  background-size: 220% 220%;
   background-attachment: fixed;
+  animation: bg-drift 44s ease-in-out infinite alternate;
 }
 
 button {
@@ -244,6 +254,69 @@ input[type="checkbox"] {
   border-radius: 50%;
   filter: blur(56px);
   will-change: transform;
+}
+
+.blob {
+  animation: blob-drift-a 34s ease-in-out infinite alternate;
+}
+.blob.b2,
+.blob.b5 {
+  animation: blob-drift-b 26s ease-in-out infinite alternate;
+  animation-delay: -8s;
+}
+.blob.b3,
+.blob.b6 {
+  animation: blob-drift-c 40s ease-in-out infinite alternate;
+  animation-delay: -18s;
+}
+.blob.b7 {
+  animation: blob-drift-a 30s ease-in-out infinite alternate;
+  animation-delay: -12s;
+}
+
+@keyframes bg-drift {
+  0% {
+    background-position: 0% 0%;
+  }
+  100% {
+    background-position: 100% 100%;
+  }
+}
+
+@keyframes blob-drift-a {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-3vw, 2.5vh) scale(1.05);
+  }
+  100% {
+    transform: translate(2.5vw, -2vh) scale(0.97);
+  }
+}
+
+@keyframes blob-drift-b {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(3vw, -2.5vh) scale(0.96);
+  }
+  100% {
+    transform: translate(-2vw, 3vh) scale(1.04);
+  }
+}
+
+@keyframes blob-drift-c {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-2vw, -3vh) scale(1.06);
+  }
+  100% {
+    transform: translate(2vw, 2.5vh) scale(0.98);
+  }
 }
 
 .bg-blobs .b1 {
@@ -2835,6 +2908,11 @@ input[type="checkbox"] {
 }
 
 /* 响应式 */
+/* 移动端底部导航：桌面隐藏，≤720px 由媒体查询显示 */
+.mobile-tabbar {
+  display: none;
+}
+
 @media (max-width: 1280px) {
   .main {
     grid-template-columns: 250px 1fr 300px;
@@ -2868,9 +2946,7 @@ input[type="checkbox"] {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr auto;
   }
-  .tree-panel {
-    max-height: 38vh;
-  }
+  /* .tree-panel 移动端全高（单面板布局） */
   .topbar .hide-sm {
     display: none;
   }
@@ -2916,9 +2992,73 @@ input[type="checkbox"] {
   .login-card {
     padding: 24px 22px 22px;
   }
+
+  /* —— 移动端：单面板 + 底部导航（频道 / 语音 / 聊天）—— */
+  .main {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto auto;
+  }
+  .panel {
+    display: none;
+  }
+  .panel.m-active {
+    display: flex;
+  }
+  .voice-bar {
+    display: none;
+  }
+  .voice-bar.m-active {
+    display: flex;
+  }
+  .mobile-tabbar {
+    display: flex;
+    gap: 8px;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    background: rgba(255, 255, 255, 0.62);
+    backdrop-filter: blur(var(--blur-xl)) saturate(1.8);
+    -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(1.8);
+    border-top: 1px solid rgba(255, 255, 255, 0.65);
+    box-shadow: var(--glass-hi);
+    z-index: 15;
+  }
+  .mobile-tabbar button {
+    position: relative;
+    flex: 1;
+    min-height: 44px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 8px 0;
+  }
+  .mobile-tabbar button.active {
+    background: rgba(255, 255, 255, 0.85);
+    border-color: rgba(79, 131, 187, 0.35);
+    color: var(--accent);
+    box-shadow: var(--shadow-sm);
+  }
+  .tab-badge {
+    position: absolute;
+    top: 2px;
+    right: 8px;
+    min-width: 18px;
+    height: 18px;
+    line-height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  body,
+  .blob,
   .toast,
   .form-grid label.invalid input,
   .wave i,

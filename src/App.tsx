@@ -163,6 +163,8 @@ export default function App() {
   }>({})
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null)
   const [deafened, setDeafened] = useState(false)
+  // 移动端底部导航当前页签（桌面端不参与布局）
+  const [mobileTab, setMobileTab] = useState<'tree' | 'voice' | 'chat'>('voice')
   const [httpsDismissed, setHttpsDismissed] = useState(
     () => sessionStorage.getItem('tsweb:https-dismissed') === '1',
   )
@@ -1488,7 +1490,7 @@ export default function App() {
         )}
 
         <div className="main">
-          <aside className="panel tree-panel">
+          <aside className={`panel tree-panel${mobileTab === 'tree' ? ' m-active' : ''}`}>
             <div className="server-head">
               <div className="server-info">
                 <div className="server-name">
@@ -1609,7 +1611,7 @@ export default function App() {
             </div>
           </aside>
 
-          <section className="panel voice-panel">
+          <section className={`panel voice-panel${mobileTab === 'voice' ? ' m-active' : ''}`}>
             <div className="voice-toolbar">
               <div className="crumb">
                 {channelPath.length > 0 ? channelPath.join(' › ') : '语音频道'}
@@ -1756,7 +1758,7 @@ export default function App() {
             </div>
           </section>
 
-          <aside className="panel chat-panel">
+          <aside className={`panel chat-panel${mobileTab === 'chat' ? ' m-active' : ''}`}>
             <div className="side-tabs">
               <button
                 type="button"
@@ -1893,7 +1895,7 @@ export default function App() {
           </aside>
         </div>
 
-        <footer className={`voice-bar${uplink ? ' uplink' : ''}`}>
+        <footer className={`voice-bar${uplink ? ' uplink' : ''}${mobileTab === 'voice' ? ' m-active' : ''}`}>
           <button
             type="button"
             className={`vb-mic${muted || deafened ? ' off' : ''}`}
@@ -1988,6 +1990,35 @@ export default function App() {
             </button>
           </div>
         </footer>
+        <nav className="mobile-tabbar" aria-label="移动端导航">
+          <button
+            type="button"
+            className={mobileTab === 'tree' ? 'active' : ''}
+            onClick={() => setMobileTab('tree')}
+            aria-current={mobileTab === 'tree' ? 'page' : undefined}
+          >
+            频道
+          </button>
+          <button
+            type="button"
+            className={mobileTab === 'voice' ? 'active' : ''}
+            onClick={() => setMobileTab('voice')}
+            aria-current={mobileTab === 'voice' ? 'page' : undefined}
+          >
+            语音
+          </button>
+          <button
+            type="button"
+            className={mobileTab === 'chat' ? 'active' : ''}
+            onClick={() => setMobileTab('chat')}
+            aria-current={mobileTab === 'chat' ? 'page' : undefined}
+          >
+            聊天
+            {newMsgCount > 0 && (
+              <span className="tab-badge">{newMsgCount > 99 ? '99+' : newMsgCount}</span>
+            )}
+          </button>
+        </nav>
       </div>
     )
   }
