@@ -106,7 +106,6 @@ export function BlinkingSquares({
         return Math.pow((u - fadeStart) / (fadeEnd - fadeStart), falloff)
       }
 
-      let lit = 0
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           const seed = r * cols + c
@@ -122,7 +121,6 @@ export function BlinkingSquares({
           const a = Math.min(1, b) * opacity
           ctx.fillStyle = `rgba(${sq.r},${sq.g},${sq.b},${a})`
           ctx.fillRect(c * cellW + (cellW - fill) / 2, r * cellH + (cellH - fill) / 2, fill, fill)
-          lit++
         }
       }
       raf = requestAnimationFrame(draw)
