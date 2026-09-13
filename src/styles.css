@@ -953,6 +953,98 @@ input[type="checkbox"] {
   color: rgba(66, 130, 188, 0.68);
 }
 
+/* —— 登录页动态背景：波形虚线流动 + 节点数据流 + 呼吸脉冲 —— */
+.bg-wave {
+  animation: wave-float 9s ease-in-out infinite;
+}
+.bg-wave path {
+  stroke-dasharray: 5 11;
+  animation: dash-flow 9s linear infinite;
+}
+.bg-wave path:nth-child(2) {
+  animation-duration: 12s;
+  animation-delay: -4s;
+}
+.bg-wave path:nth-child(3) {
+  animation-duration: 15s;
+  animation-delay: -9s;
+}
+.bg-nodes .node-server {
+  transform-origin: 450px 270px;
+  animation: node-breath 7s ease-in-out infinite;
+}
+.bg-nodes path {
+  animation: dash-flow 14s linear infinite;
+}
+.bg-nodes path:nth-of-type(2) {
+  animation-duration: 18s;
+  animation-delay: -6s;
+}
+.bg-nodes path:nth-of-type(3) {
+  animation-duration: 22s;
+  animation-delay: -12s;
+}
+.bg-nodes path:nth-of-type(4) {
+  animation-duration: 26s;
+  animation-delay: -18s;
+}
+.bg-nodes circle {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: node-pulse 6s ease-in-out infinite;
+}
+.bg-nodes circle:nth-of-type(2) { animation-delay: -1.6s; }
+.bg-nodes circle:nth-of-type(3) { animation-delay: -3.2s; }
+.bg-nodes circle:nth-of-type(4) { animation-delay: -4.4s; }
+.bg-nodes circle:nth-of-type(5) { animation-delay: -1s; }
+.bg-nodes circle:nth-of-type(6) { animation-delay: -5.2s; }
+.bg-nodes circle:nth-of-type(7) { animation-delay: -2.6s; }
+.bg-nodes circle:nth-of-type(8) { animation-delay: -3.8s; }
+.bg-nodes circle:nth-of-type(9) { animation-delay: -0.4s; }
+
+@keyframes dash-flow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -64;
+  }
+}
+
+@keyframes wave-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes node-breath {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.95;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+@keyframes node-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+}
+
 .login-center {
   position: relative;
   z-index: 1;
@@ -3137,6 +3229,11 @@ input[type="checkbox"] {
 @media (prefers-reduced-motion: reduce) {
   body,
   .blob,
+  .bg-wave,
+  .bg-wave path,
+  .bg-nodes .node-server,
+  .bg-nodes path,
+  .bg-nodes circle,
   .toast,
   .form-grid label.invalid input,
   .wave i,
