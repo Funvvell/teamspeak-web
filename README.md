@@ -80,13 +80,19 @@ TeamSpeak Web 通过一个轻量的 **Node.js WebSocket 网关**桥接 TeamSpeak
 ```bash
 git clone https://github.com/Funvvell/teamspeak-web.git
 cd teamspeak-web
-# （可选）在 .env 中预填你的 TS 服务器地址，登录页会默认带上：
-echo 'DEFAULT_HOST=你的TS服务器IP（如 1.2.3.4）' >> .env
+# 生产必填：网关访问令牌（请自行生成强随机串，写入 .env，勿提交仓库）
+# 可选：预填登录页默认 TS 服务器（示例用文档占位 IP，不要写成你的真实地址）
+cat >> .env <<'EOF'
+GATEWAY_TOKEN=请改成足够长的随机串
+DEFAULT_HOST=1.2.3.4
+EOF
 docker compose up -d --build
 # 浏览器访问 http://<服务器IP>:8080
 ```
 
-默认监听 `0.0.0.0:8080`，协议为真实 TS3（`PROTOCOL=ts3`）。TS3 身份持久化在 volume `tsweb-data`。
+默认监听 `0.0.0.0:8080`，协议为真实 TS3（`PROTOCOL=ts3`）。**未设置 `GATEWAY_TOKEN` 时容器会直接退出**（可设 `ALLOW_OPEN=1` 显式接受无鉴权风险，不推荐公网）。TS3 身份持久化在 volume `tsweb-data`。
+
+> `.env` 含密钥/内网地址，请保持本地且已在 `.gitignore` 中忽略，不要提交或截图泄露。
 
 ---
 
@@ -97,6 +103,7 @@ docker compose up -d --build
 ```bash
 git clone https://github.com/Funvvell/teamspeak-web.git
 cd teamspeak-web
+# 先写入 .env：GATEWAY_TOKEN=<强随机串>，可选 DEFAULT_HOST / ALLOWED_HOSTS
 docker compose up -d --build
 ```
 
@@ -242,14 +249,20 @@ Windows PowerShell 设置方式：
 ```powershell
 $env:PROTOCOL = "ts3"
 $env:PORT = "8080"
+$env:GATEWAY_TOKEN = "请改成足够长的随机串"
+# 内网连本机/私网 TS 时再打开：
+# $env:ALLOW_PRIVATE_HOSTS = "1"
 npm start
 ```
 
-## 🔒 Security
+## 🔒 安全
 
-- **Set `GATEWAY_TOKEN` in production.** `PROTOCOL=ts3` refuses to start without a token unless `ALLOW_OPEN=1` (not recommended on public networks). Pass it as `?token=` or `Authorization: Bearer`.
-- **Optional host allowlist:** set `ALLOWED_HOSTS` to a comma-separated list of permitted TS server hosts; private/localhost targets are blocked by default (`ALLOW_PRIVATE_HOSTS=1` to override).
-- **HTTPS is required for the microphone.** Browsers only grant `getUserMedia` / WebCodecs in a secure context — put the gateway behind TLS (see the HTTPS section above).
+- **`PROTOCOL=ts3` 必须设置 `GATEWAY_TOKEN`**，否则网关拒绝启动（仅 `ALLOW_OPEN=1` 可显式放开，不推荐公网）。客户端连接 `/ws` 时带上 `?token=` 或 `Authorization: Bearer <token>`；优先走 HTTPS，并尽量避免把 token 写进可被代理日志记录的 URL。
+- **主机白名单**：`ALLOWED_HOSTS=ts.example.com,*.corp.example`（精确名或 `*.suffix`）。默认拒绝私网/本机地址；内网部署可设 `ALLOW_PRIVATE_HOSTS=1`。始终拒绝云元数据地址。
+- **麦克风需要安全上下文**：公网必须 HTTPS（或本机 localhost），否则浏览器拒绝 `getUserMedia` / WebCodecs。
+- **不要提交含密钥或真实内网地址的 `.env`**；仓库默认忽略该文件。对外分享截图/日志前自查是否含 token、IP、密码。
+- 服务器密码仅在当次连接内存中使用，不写日志。
+- 建议再叠加：反代 Basic Auth / SSO、源 IP 限制、仅内网暴露。
 
 ## 🎵 音乐机器人（TSMusicBot）
 
@@ -322,7 +335,6 @@ MUSIC_BOT_URL=https://你的IP或域名:3001 npm start
 |------|------|
 | 顶栏没有 🎵 按钮 | 网关未设置 `MUSIC_BOT_URL` 或未重启 |
 | 面板提示「音乐机器人未配置」 | 同左，检查环境变量与网关日志 |
-| 顶栏没有 🎵 按钮 | 网关未设置 `MUSIC_BOT_URL` 或未重启 |
 | 点击 🎵 无反应 | `MUSIC_BOT_URL` 为空或地址浏览器打不开；地址不能填 `localhost`（会指向访客自己的电脑） |
 | 新标签打开后提示"不安全" | HTTPS 站点打开 HTTP 页面属正常提示；按「HTTPS 部署」给机器人配 HTTPS 并改用 `https://…` 地址即可消除 |
 | 登录 401 | 在机器人 WebUI（直接访问 `MUSIC_BOT_URL`）确认账号密码 |
@@ -364,10 +376,11 @@ npm run smoke:ts3 -- <ts-host> [port]
 
 ```
 ├── src/                    # React 前端
-│   ├── App.tsx             # 主应用（登录 / 主界面 / 设置）
+│   ├── App.tsx             # 编排：连接、语音、快捷键、视图切换
+│   ├── views/              # LoginView / SettingsView / MainShell
 │   ├── components/         # 图标 / 控件 / 频道树等拆分组件
-│   ├── lib/                # 网关客户端 / 麦克风 / 语音管线 / 工具
-│   └── styles.css          # 毛玻璃 UI 主题
+│   ├── lib/                # 网关客户端 / 麦克风 / 语音帧 / 语音管线
+│   └── styles.css          # 主题样式
 ├── gateway/                # Node 网关
 │   └── src/protocol/       # ts3-adapter（真实协议）/ mock-adapter（演示）
 ├── shared/types.ts         # WebSocket 消息契约
@@ -381,11 +394,14 @@ npm run smoke:ts3 -- <ts-host> [port]
 
 客户端 → 网关：`connect` / `disconnect` / `join_channel` / `send_message` / `mic` / `whisper_add` / `whisper_clear` / `poke`
 
-网关 → 客户端：`status` / `server_info` / `channel_tree` / `client_list` / `message` / `error`
+网关 → 客户端：`status` / `server_info` / `channel_tree` / `client_list` / `message` / `event_log` / `error`
 
-音频帧（Binary）：`[opcode:u8=1][codec:u8][clientId u16 BE][opus payload]`
+音频帧（Binary，协议不对称、勿混用）：
 
-完整类型定义见 `shared/types.ts`。
+- **上行**（浏览器 → 网关）：`[opcode:u8=1][codec:u8][opus payload]`
+- **下行**（网关 → 浏览器）：`[opcode:u8=1][codec:u8][clientId:u16 BE][opus payload]`
+
+完整类型定义见 `shared/types.ts`，编解码见 `src/lib/voice-frame.ts`。
 
 ---
 
