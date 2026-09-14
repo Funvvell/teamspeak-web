@@ -24,6 +24,7 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
     this.inPtr = 0
     this.outPtr = 0
     this.vad = 0
+    this.lastPostedVad = -1
     this.port.onmessage = (e) => {
       const d = e.data
       if (d && d.type === 'set-denoise') this.denoise = !!d.enabled
@@ -47,10 +48,24 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
       this.outPtr = this.wasm.malloc(this.frameSize * 2)
       this.memI16 = new Int16Array(this.wasm.memory.buffer)
       this.ready = true
+      this.lastPostedVad = -1
       this.port.postMessage({ type: 'ready', frameSize: this.frameSize })
     } catch (err) {
       this.port.postMessage({ type: 'error', message: String(err) })
     }
+  }
+
+  /**
+   * wasm memory can grow and detach the previous ArrayBuffer. Re-create the
+   * Int16 view whenever the underlying buffer no longer matches.
+   */
+  ensureMemView() {
+    const mem = this.wasm && this.wasm.memory
+    if (!mem) return false
+    if (!this.memI16 || this.memI16.buffer !== mem.buffer) {
+      this.memI16 = new Int16Array(mem.buffer)
+    }
+    return true
   }
 
   // 从 pending 头部取 n 帧（不足返回 null）
@@ -93,21 +108,28 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
       if (got < fs) break
       let out
       if (this.denoise) {
-        // RNNoise 假定 16-bit PCM：float(-1..1) × 32768 → Int16 写入
-        const i16 = this.memI16
-        const base = this.inPtr >> 1
-        for (let i = 0; i < fs; i++) {
-          let v = frame[i] * 32768
-          if (v > 32767) v = 32767
-          else if (v < -32768) v = -32768
-          i16[base + i] = v | 0
+        if (!this.ensureMemView()) {
+          out = frame
+        } else {
+          // RNNoise 假定 16-bit PCM：float(-1..1) × 32768 → Int16 写入
+          const i16 = this.memI16
+          const base = this.inPtr >> 1
+          for (let i = 0; i < fs; i++) {
+            let v = frame[i] * 32768
+            if (v > 32767) v = 32767
+            else if (v < -32768) v = -32768
+            i16[base + i] = v | 0
+          }
+          this.vad = this.wasm.rnnoise_process_frame(this.state, this.inPtr, this.outPtr)
+          out = new Float32Array(fs)
+          const obase = this.outPtr >> 1
+          for (let i = 0; i < fs; i++) out[i] = i16[obase + i] / 32768
+          // VAD 上报：仅在相对上次有显著变化时 post，降低主线程消息压力
+          if (Math.abs(this.vad - this.lastPostedVad) > 0.05) {
+            this.lastPostedVad = this.vad
+            this.port.postMessage({ vad: this.vad })
+          }
         }
-        this.vad = this.wasm.rnnoise_process_frame(this.state, this.inPtr, this.outPtr)
-        out = new Float32Array(fs)
-        const obase = this.outPtr >> 1
-        for (let i = 0; i < fs; i++) out[i] = i16[obase + i] / 32768
-        // VAD 上报（每 10ms 一次，控制消息不占用音频通道）
-        this.port.postMessage({ vad: this.vad })
       } else {
         out = frame
       }

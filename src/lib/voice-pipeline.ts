@@ -2,60 +2,32 @@
  * Browser Opus voice pipeline via WebCodecs (Chrome/Edge).
  * Capture: getUserMedia → AudioWorklet → AudioEncoder → binary WS frames
  * Playback: binary WS frames → AudioDecoder → AudioBuffer queue
+ *
+ * Frame format (see voice-frame.ts):
+ * - Uplink (this → gateway):  [1][codec][opus...]                 (2-byte header, no id)
+ * - Downlink (gateway → this): [1][codec][idHi][idLo][opus...]    (always 4-byte header)
  */
 
-export const OPCODE_AUDIO = 1
-export const CODEC_OPUS_VOICE = 4
+export {
+  OPCODE_AUDIO,
+  CODEC_OPUS_VOICE,
+  FRAME_HEADER_BYTES,
+  CLIENT_HEADER_BYTES,
+  encodeClientFrame,
+  encodeServerFrame,
+  decodeServerFrame,
+  decodeVoiceFrame,
+  /** @deprecated use encodeClientFrame */
+  encodeVoiceFrame,
+  /** @deprecated use encodeServerFrame */
+  encodeVoiceFrameWithId,
+} from './voice-frame'
+export type { DecodedVoiceFrame } from './voice-frame'
+
 export const SAMPLE_RATE = 48000
 export const CHANNELS = 1
 /** 20ms @ 48kHz mono */
 export const FRAME_SAMPLES = 960
-
-export function encodeVoiceFrame(
-  opus: Uint8Array,
-  codec = CODEC_OPUS_VOICE,
-): Uint8Array {
-  const out = new Uint8Array(2 + opus.length)
-  out[0] = OPCODE_AUDIO
-  out[1] = codec
-  out.set(opus, 2)
-  return out
-}
-
-export function encodeVoiceFrameWithId(
-  opus: Uint8Array,
-  clientId: number,
-  codec = CODEC_OPUS_VOICE,
-): Uint8Array {
-  const out = new Uint8Array(4 + opus.length)
-  out[0] = OPCODE_AUDIO
-  out[1] = codec
-  out[2] = (clientId >> 8) & 0xff
-  out[3] = clientId & 0xff
-  out.set(opus, 4)
-  return out
-}
-
-export function decodeVoiceFrame(buf: ArrayBuffer | Uint8Array): {
-  codec: number
-  clientId: number
-  opus: Uint8Array
-} | null {
-  const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
-  if (u8.length < 2 || u8[0] !== OPCODE_AUDIO) return null
-  const codec = u8[1]
-  // New format: [1][codec][idHi][idLo][opus...] when length >= 4 and id bytes present
-  if (u8.length >= 4) {
-    const clientId = (u8[2] << 8) | u8[3]
-    // Heuristic: if remaining looks like opus (starts after 4), treat as new format
-    // Legacy frames have no id — keep clientId 0 and opus from offset 2 when short
-    // Prefer new format when byte length > 4
-    if (u8.length > 4) {
-      return { codec, clientId, opus: u8.subarray(4) }
-    }
-  }
-  return { codec, clientId: 0, opus: u8.subarray(2) }
-}
 
 export function webCodecsSupported(): boolean {
   return (
@@ -108,12 +80,24 @@ export function createVoicePipeline(): VoicePipeline {
   let closed = false
   let outputVolume = 1
   const clientVolumes = new Map<number, number>()
-  let pendingClientId = 0
+  /**
+   * FIFO of clientId per decode input. WebCodecs AudioDecoder emits outputs
+   * in the same order as decode() inputs, so the output callback shifts the
+   * matching id (avoids the old single pendingClientId race).
+   */
+  const clientIdQueue: number[] = []
   let sinkId = ''
   let fxAec = true
   let fxAgc = true
   let fxNoise = true
   let rnnoiseNode: AudioWorkletNode | null = null
+  let sourceNode: MediaStreamAudioSourceNode | null = null
+  let aecNode: AudioWorkletNode | null = null
+  let agcNode: DynamicsCompressorNode | null = null
+  let muteNode: GainNode | null = null
+  let wasmAbort: AbortController | null = null
+  /** Bumped on stopCapture/close so a late initRnnoise result is ignored. */
+  let rnnoiseGen = 0
 
   function ensureCtx(): AudioContext {
     if (!audioCtx || audioCtx.state === 'closed') {
@@ -137,8 +121,10 @@ export function createVoicePipeline(): VoicePipeline {
     if (decoder && decoder.state !== 'closed') return decoder
     decoder = new AudioDecoder({
       output: (audioData) => {
+        // Order-preserving: WebCodecs emits outputs in decode() call order
+        const clientId = clientIdQueue.shift() ?? 0
         try {
-          playAudioData(audioData, pendingClientId)
+          playAudioData(audioData, clientId)
         } finally {
           audioData.close()
         }
@@ -180,6 +166,9 @@ export function createVoicePipeline(): VoicePipeline {
     if (nextPlayTime < now + 0.02) nextPlayTime = now + 0.02
     src.start(nextPlayTime)
     nextPlayTime += buffer.duration
+    // Simple catch-up: if we fell >0.5s behind wall clock (GC pause, tab
+    // throttle, clock drift), reset the schedule instead of growing a jitter
+    // buffer. Intentionally not a full jitter buffer — keep latency low.
     if (nextPlayTime > now + 0.5) nextPlayTime = now + 0.05
   }
 
@@ -253,7 +242,7 @@ export function createVoicePipeline(): VoicePipeline {
     await ctx.audioWorklet.addModule('/aec-processor.js')
     await ctx.audioWorklet.addModule('/rnnoise-worklet.js')
     await ctx.audioWorklet.addModule('/capture-processor.js')
-    const source = ctx.createMediaStreamSource(stream)
+    sourceNode = ctx.createMediaStreamSource(stream)
     workletNode = new AudioWorkletNode(ctx, 'capture-processor')
     workletNode.port.onmessage = (ev) => {
       const pcm = ev.data as Float32Array
@@ -266,26 +255,26 @@ export function createVoicePipeline(): VoicePipeline {
     // inputs[1]：同一 AudioContext 内样本级对齐，HOP=128 ≈ 2.7ms@48k，无额外缓冲
     // 降噪为 RNNoise（@shiguredo/rnnoise-wasm，Apache-2.0）：480 帧 10ms 处理，输出对齐后块
     // AGC 用 Web Audio DynamicsCompressorNode（原生节点，零额外延迟）
-    let head: AudioNode = source
+    let head: AudioNode = sourceNode
     if (fxAec && masterGain) {
-      const aecNode = new AudioWorkletNode(ctx, 'aec-processor', {
+      aecNode = new AudioWorkletNode(ctx, 'aec-processor', {
         numberOfInputs: 2,
         numberOfOutputs: 1,
         outputChannelCount: [1],
       })
-      source.connect(aecNode, 0, 0)
+      sourceNode.connect(aecNode, 0, 0)
       masterGain.connect(aecNode, 0, 1) // 播放输出 → AEC 参考输入
       head = aecNode
     }
     if (fxAgc) {
-      const agc = ctx.createDynamicsCompressor()
-      agc.threshold.value = -24
-      agc.knee.value = 12
-      agc.ratio.value = 8
-      agc.attack.value = 0.003
-      agc.release.value = 0.12
-      head.connect(agc)
-      head = agc
+      agcNode = ctx.createDynamicsCompressor()
+      agcNode.threshold.value = -24
+      agcNode.knee.value = 12
+      agcNode.ratio.value = 8
+      agcNode.attack.value = 0.003
+      agcNode.release.value = 0.12
+      head.connect(agcNode)
+      head = agcNode
     }
     // RNNoise 节点恒在链中（wasm 懒加载）：降噪开时 init，关时透传，开关即时生效不重建图
     rnnoiseNode = new AudioWorkletNode(ctx, 'rnnoise-processor')
@@ -303,20 +292,97 @@ export function createVoicePipeline(): VoicePipeline {
       rnnoiseNode.port.postMessage({ type: 'set-denoise', enabled: false })
     }
     // Keep graph alive without feedback to speakers
-    const mute = ctx.createGain()
-    mute.gain.value = 0
-    workletNode.connect(mute)
-    mute.connect(ctx.destination)
+    muteNode = ctx.createGain()
+    muteNode.gain.value = 0
+    workletNode.connect(muteNode)
+    muteNode.connect(ctx.destination)
   }
 
   function stopCapture() {
-    workletNode?.port.close()
-    workletNode?.disconnect()
-    workletNode = null
-    rnnoiseNode?.port.close()
-    rnnoiseNode?.disconnect()
-    rnnoiseNode = null
+    // Invalidate in-flight RNNoise wasm load
+    rnnoiseGen++
+    wasmAbort?.abort()
+    wasmAbort = null
+    // Tear down the full capture graph: disconnect every node and drop refs.
+    if (workletNode) {
+      try {
+        workletNode.port.onmessage = null
+        workletNode.port.close()
+      } catch {
+        /* ignore */
+      }
+      try {
+        workletNode.disconnect()
+      } catch {
+        /* ignore */
+      }
+      workletNode = null
+    }
+    if (rnnoiseNode) {
+      try {
+        rnnoiseNode.port.onmessage = null
+        rnnoiseNode.port.close()
+      } catch {
+        /* ignore */
+      }
+      try {
+        rnnoiseNode.disconnect()
+      } catch {
+        /* ignore */
+      }
+      rnnoiseNode = null
+    }
     rnnoiseReady = false
+    vadRef = 0
+    if (aecNode) {
+      try {
+        aecNode.port.onmessage = null
+        aecNode.disconnect()
+      } catch {
+        /* ignore */
+      }
+      aecNode = null
+    }
+    if (agcNode) {
+      try {
+        agcNode.disconnect()
+      } catch {
+        /* ignore */
+      }
+      agcNode = null
+    }
+    if (sourceNode) {
+      try {
+        sourceNode.disconnect()
+      } catch {
+        /* ignore */
+      }
+      sourceNode = null
+    }
+    if (muteNode) {
+      try {
+        muteNode.disconnect()
+      } catch {
+        /* ignore */
+      }
+      muteNode = null
+    }
+    // Drop masterGain → AEC reference edge so playback does not keep the graph alive
+    if (masterGain) {
+      try {
+        masterGain.disconnect()
+      } catch {
+        /* ignore */
+      }
+      // Reconnect masterGain → destination (playback path) after tearing down AEC ref
+      if (audioCtx && audioCtx.state !== 'closed') {
+        try {
+          masterGain.connect(audioCtx.destination)
+        } catch {
+          /* ignore */
+        }
+      }
+    }
     mediaStream?.getTracks().forEach((t) => t.stop())
     mediaStream = null
     if (encoder && encoder.state !== 'closed') {
@@ -352,17 +418,23 @@ export function createVoicePipeline(): VoicePipeline {
   let vadRef = 0
 
   async function initRnnoise() {
+    const gen = ++rnnoiseGen
     try {
       if (!rnnoiseNode || rnnoiseReady) return
       // 主线程拉取并编译 wasm（~3.6MB，仅降噪开启时一次性加载），Module 可转移进 worklet
-      const res = await fetch('/rnnoise.wasm')
+      wasmAbort?.abort()
+      wasmAbort = new AbortController()
+      const res = await fetch('/rnnoise.wasm', { signal: wasmAbort.signal })
       if (!res.ok) throw new Error('fetch rnnoise.wasm failed: ' + res.status)
       const bytes = await res.arrayBuffer()
       const module = await WebAssembly.compile(bytes)
-      if (!rnnoiseNode || rnnoiseReady) return
+      // stopCapture/close may have run during fetch/compile — ignore late ready
+      if (gen !== rnnoiseGen || !rnnoiseNode || rnnoiseReady || closed) return
       // WebAssembly.Module 支持结构化克隆，直接发送（无需 transfer 列表）
       rnnoiseNode.port.postMessage({ type: 'init', module })
     } catch (err) {
+      if ((err as { name?: string })?.name === 'AbortError') return
+      if (gen !== rnnoiseGen) return
       console.warn('[voice] rnnoise init failed, 降噪保持关闭', err)
       fxNoise = false
       if (rnnoiseNode) rnnoiseNode.port.postMessage({ type: 'set-denoise', enabled: false })
@@ -373,7 +445,8 @@ export function createVoicePipeline(): VoicePipeline {
     if (closed || !opus.length) return
     const dec = ensureDecoder()
     if (!dec || dec.state === 'closed') return
-    pendingClientId = clientId
+    // Associate this clientId with the next decoder output (order-preserving FIFO)
+    clientIdQueue.push(clientId)
     try {
       dec.decode(
         new EncodedAudioChunk({
@@ -383,6 +456,8 @@ export function createVoicePipeline(): VoicePipeline {
         }),
       )
     } catch (e) {
+      // Drop the queued id if decode threw so the FIFO stays aligned
+      clientIdQueue.pop()
       console.warn('[voice] decode failed', e)
     }
   }
@@ -432,7 +507,10 @@ export function createVoicePipeline(): VoicePipeline {
 
   function close() {
     closed = true
+    wasmAbort?.abort()
+    wasmAbort = null
     stopCapture()
+    clientIdQueue.length = 0
     if (decoder && decoder.state !== 'closed') {
       try {
         decoder.close()
