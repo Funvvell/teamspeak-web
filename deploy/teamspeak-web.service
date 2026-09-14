@@ -9,7 +9,11 @@ Environment=NODE_ENV=production
 Environment=PORT=8080
 Environment=HOST=0.0.0.0
 Environment=PROTOCOL=ts3
-Environment=PROTOCOL=ts3
+# Required for PROTOCOL=ts3 unless ALLOW_OPEN=1
+Environment=GATEWAY_TOKEN=change-me
+Environment=ALLOW_PRIVATE_HOSTS=0
+# Optional comma-separated host allowlist (exact or *.suffix). Empty = only block private/metadata
+# Environment=ALLOWED_HOSTS=ts.example.com,*.example.com
 Environment=DEFAULT_HOST=你的TS服务器IP   # 登录页默认预填的服务器地址（留空则不预填）
 ExecStart=/usr/bin/node /opt/teamspeak-web/node_modules/tsx/dist/cli.mjs gateway/src/index.ts
 Restart=on-failure

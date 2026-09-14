@@ -1,4 +1,5 @@
 import type { WebSocket } from 'ws'
+import net from 'node:net'
 import type {
   ClientToGateway,
   ConnectionState,
@@ -7,11 +8,103 @@ import type {
 import type { AdapterFactory } from './protocol/adapter'
 
 const OPCODE_AUDIO = 1
+const PROTOCOL = (process.env.PROTOCOL || 'ts3').toLowerCase()
+const ALLOW_PRIVATE_HOSTS =
+  process.env.ALLOW_PRIVATE_HOSTS === '1' || process.env.ALLOW_PRIVATE === '1'
+const ALLOWED_HOSTS = (
+  process.env.ALLOWED_HOSTS ||
+  process.env.ALLOW_HOSTS ||
+  ''
+)
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean)
+const CONNECT_MIN_INTERVAL_MS = 2000
+const MAX_TEXT_LEN = 2000
+
+function isPrivateOrLocalHost(host: string): boolean {
+  const h = host.trim().toLowerCase().replace(/^\[|\]$/g, '')
+  if (h === 'localhost' || h === '::1' || h === '0.0.0.0') return true
+  if (/\.local$/.test(h) || /\.internal$/.test(h)) return true
+
+  const v4 = net.isIPv4(h)
+  const v6 = net.isIPv6(h)
+  if (!v4 && !v6) {
+    // hostname: only allowlist can gate; private-looking names handled above
+    return false
+  }
+  if (v4) {
+    const parts = h.split('.').map(Number)
+    const [a, b] = parts
+    if (a === 10) return true
+    if (a === 127) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+    if (a === 169 && b === 254) return true
+    if (a === 0) return true
+    return false
+  }
+  // IPv6 ULA / link-local / metadata-ish
+  if (h.startsWith('fc') || h.startsWith('fd')) return true
+  if (h.startsWith('fe80')) return true
+  return false
+}
+
+function hostMatchesAllowlist(host: string, allowlist: string[]): boolean {
+  const h = host.trim().toLowerCase()
+  for (const entry of allowlist) {
+    if (entry.startsWith('*.')) {
+      const suffix = entry.slice(1) // ".example.com"
+      if (h.length > suffix.length && h.endsWith(suffix)) return true
+    } else if (h === entry) {
+      return true
+    }
+  }
+  return false
+}
+
+function assertHostAllowed(host: string) {
+  const h = host.trim().toLowerCase()
+  if (!h) {
+    throw new Error('Host 不能为空')
+  }
+  // Always block cloud metadata / link-local even if allowlisted by mistake
+  if (h === '169.254.169.254') {
+    throw new Error('拒绝连接云元数据地址')
+  }
+  if (ALLOWED_HOSTS.length > 0) {
+    if (!hostMatchesAllowlist(h, ALLOWED_HOSTS)) {
+      throw new Error(`Host 不在 ALLOWED_HOSTS 白名单: ${host}`)
+    }
+    return
+  }
+  if (!ALLOW_PRIVATE_HOSTS && isPrivateOrLocalHost(host)) {
+    throw new Error(
+      `拒绝连接私网/本机地址 ${host}。内网部署请设置 ALLOW_PRIVATE_HOSTS=1 或 ALLOWED_HOSTS 白名单。`,
+    )
+  }
+}
+
+function asString(v: unknown, max: number): string {
+  if (typeof v !== 'string') throw new Error('Expected string')
+  const s = v.trim()
+  if (!s || s.length > max) throw new Error('Invalid string length')
+  return s
+}
+
+function asPort(v: unknown): number {
+  const n = typeof v === 'string' ? Number(v) : v
+  if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 65535) {
+    throw new Error('Invalid port')
+  }
+  return n
+}
 
 export class Session {
   private adapter: ReturnType<AdapterFactory> | null = null
   private connecting = false
   private connectGen = 0
+  private lastConnectAt = 0
 
   constructor(
     private readonly ws: WebSocket,
@@ -29,7 +122,7 @@ export class Session {
   }
 
   handleRaw(data: string | Buffer | ArrayBuffer | Buffer[]) {
-    // Binary frames: [opcode:u8=1][codec:u8][opus payload...] or [1][codec][id u16][opus]
+    // Uplink (browser → gateway): [opcode=1][codec][opus...] — always 2-byte header.
     if (typeof data !== 'string') {
       const buf = Buffer.isBuffer(data)
         ? data
@@ -45,14 +138,14 @@ export class Session {
         return
       }
       if (buf.length < 3) {
-        // 帧头至少 opcode+codec+1 字节载荷，空帧直接丢弃
         console.warn('[session] dropped empty audio frame, len=' + buf.length)
         return
       }
       if (this.adapter?.sendVoice) {
         try {
           const codec = buf[1]
-          this.adapter.sendVoice(buf.subarray(2), codec)
+          const opus = buf.subarray(2)
+          this.adapter.sendVoice(opus, codec)
         } catch (err) {
           console.warn(
             '[session] sendVoice frame error:',
@@ -72,7 +165,6 @@ export class Session {
     }
     void this.handle(msg).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
-      // Benign: user already in target channel
       if (/already member of channel/i.test(message)) {
         console.warn('[session]', message)
         return
@@ -86,20 +178,42 @@ export class Session {
   private async handle(msg: ClientToGateway) {
     switch (msg.type) {
       case 'connect': {
-        // Ignore duplicate connect while one is in flight (auto-reconnect storms)
         if (this.connecting) {
           console.warn('[session] connect ignored — already connecting')
           this.status('connecting', '已有连接进行中，请稍候')
           return
         }
+        const now = Date.now()
+        if (
+          this.lastConnectAt &&
+          now - this.lastConnectAt < CONNECT_MIN_INTERVAL_MS
+        ) {
+          this.send({
+            type: 'error',
+            code: 'rate_limited',
+            message: '连接过于频繁，请稍候再试',
+          })
+          return
+        }
+        this.lastConnectAt = now
+
+        const host = asString(msg.host, 253)
+        const port = asPort(msg.port)
+        const nickname = asString(msg.nickname, 64)
+        const password =
+          msg.password == null || msg.password === ''
+            ? undefined
+            : asString(msg.password, 256)
+        if (PROTOCOL !== 'mock') {
+          assertHostAllowed(host)
+        }
+
         this.connecting = true
         const gen = ++this.connectGen
         try {
           await this.teardownAdapter()
-          console.log(
-            `[session] connect ${msg.host}:${msg.port} as ${msg.nickname}`,
-          )
-          this.status('connecting', `Connecting to ${msg.host}:${msg.port}`)
+          console.log(`[session] connect ${host}:${port} as ${nickname}`)
+          this.status('connecting', `Connecting to ${host}:${port}`)
           this.adapter = this.createAdapter((m) => this.send(m))
           if (this.adapter.onVoice) {
             this.adapter.onVoice((frame) => {
@@ -113,17 +227,16 @@ export class Session {
             })
           }
           const info = await this.adapter.connect({
-            host: msg.host,
-            port: msg.port,
-            nickname: msg.nickname,
-            password: msg.password,
+            host,
+            port,
+            nickname,
+            password,
           })
-          if (gen !== this.connectGen) {
-            // Superseded by a newer connect/teardown
+          if (gen !== this.connectGen || !this.adapter) {
             return
           }
           console.log(
-            `[session] connected ${msg.host}:${msg.port} name=${info.name} selfId=${info.selfId}`,
+            `[session] connected ${host}:${port} name=${info.name} selfId=${info.selfId}`,
           )
           this.send({
             type: 'server_info',
@@ -135,7 +248,7 @@ export class Session {
           this.send({
             type: 'event_log',
             event: 'connect',
-            nickname: msg.nickname,
+            nickname,
             ts: Date.now(),
           })
         } finally {
@@ -144,6 +257,9 @@ export class Session {
         return
       }
       case 'disconnect': {
+        // Invalidate in-flight connect so a late success cannot report connected
+        this.connectGen += 1
+        this.connecting = false
         await this.teardownAdapter()
         this.status('disconnected')
         this.send({
@@ -160,7 +276,8 @@ export class Session {
       }
       case 'send_message': {
         if (!this.adapter) throw new Error('Not connected')
-        await this.adapter.sendText(msg.target, msg.text)
+        const text = asString(msg.text, MAX_TEXT_LEN)
+        await this.adapter.sendText(msg.target, text)
         return
       }
       case 'whisper_add': {
@@ -175,7 +292,11 @@ export class Session {
       }
       case 'poke': {
         if (!this.adapter) throw new Error('Not connected')
-        await this.adapter.poke?.(msg.targetId, msg.message)
+        const message =
+          msg.message == null || msg.message === ''
+            ? undefined
+            : asString(msg.message, MAX_TEXT_LEN)
+        await this.adapter.poke?.(msg.targetId, message)
         return
       }
       case 'mic': {
@@ -204,6 +325,8 @@ export class Session {
   }
 
   async dispose() {
+    this.connectGen += 1
+    this.connecting = false
     await this.teardownAdapter()
   }
 }

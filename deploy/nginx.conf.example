@@ -1,6 +1,10 @@
 # Example: nginx reverse proxy + HTTPS (Let's Encrypt)
 # Replace teamspeak.example.com with your domain.
 # Microphone / getUserMedia requires a secure context (HTTPS).
+#
+# Rate limiting (define in http{} context, not here):
+#   limit_req_zone $binary_remote_addr zone=tsweb:10m rate=10r/s;
+#   limit_conn_zone $binary_remote_addr zone=tsweb_conn:10m;
 
 server {
     listen 80;
@@ -17,6 +21,13 @@ server {
 
     client_max_body_size 8m;
 
+    # Security headers (adjust if you add other frontends)
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    add_header Permissions-Policy "camera=(), microphone=(self), geolocation=()" always;
+    # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
@@ -24,6 +35,9 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        # Rate-limit static/config abuse at the edge
+        # limit_req zone=tsweb burst=20 nodelay;
+        # limit_conn tsweb_conn 20;
     }
 
     location /ws {
@@ -34,5 +48,7 @@ server {
         proxy_set_header Host $host;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
+        # Prefer Authorization: Bearer over query tokens (query tokens land in access logs)
+        # limit_conn tsweb_conn 10;
     }
 }

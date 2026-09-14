@@ -1,6 +1,7 @@
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
 import { Session } from './session'
@@ -10,9 +11,11 @@ import type { AdapterFactory } from './protocol/adapter'
 
 process.on('uncaughtException', (err) => {
   console.error('[gateway] uncaughtException', err)
+  process.exit(1)
 })
 process.on('unhandledRejection', (err) => {
   console.error('[gateway] unhandledRejection', err)
+  process.exit(1)
 })
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -30,6 +33,16 @@ const STARTED_AT = Date.now()
 const MAX_PAYLOAD = Number(process.env.MAX_PAYLOAD || 1024 * 1024)
 // 并发 WS 连接上限（每连接一个 TS3 会话，防资源耗尽）
 const MAX_CONNECTIONS = Number(process.env.MAX_CONNECTIONS || 64)
+const ALLOW_OPEN = process.env.ALLOW_OPEN === '1'
+
+// Fail-closed: real TS3 protocol requires a gateway token unless explicitly allowed
+if (PROTOCOL !== 'mock' && !GATEWAY_TOKEN && !ALLOW_OPEN) {
+  console.error(
+    '[gateway] GATEWAY_TOKEN is required when PROTOCOL=ts3. ' +
+      'Set GATEWAY_TOKEN, or PROTOCOL=mock for local demo, or ALLOW_OPEN=1 to accept the risk.',
+  )
+  process.exit(1)
+}
 
 const createAdapter: AdapterFactory =
   PROTOCOL === 'mock' ? createMockAdapter : createTs3Adapter
@@ -45,12 +58,25 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2',
 }
 
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const ab = Buffer.from(a)
+  const bb = Buffer.from(b)
+  if (ab.length !== bb.length) {
+    // still burn a compare to reduce length signal
+    crypto.timingSafeEqual(ab, ab)
+    return false
+  }
+  return crypto.timingSafeEqual(ab, bb)
+}
+
 function checkHttpToken(req: http.IncomingMessage, url: URL): boolean {
   if (!GATEWAY_TOKEN) return true
   const q = url.searchParams.get('token')
-  if (q && q === GATEWAY_TOKEN) return true
+  if (q && timingSafeEqualStr(q, GATEWAY_TOKEN)) return true
   const auth = req.headers.authorization || ''
-  if (auth === `Bearer ${GATEWAY_TOKEN}`) return true
+  if (auth.startsWith('Bearer ') && timingSafeEqualStr(auth.slice(7), GATEWAY_TOKEN)) {
+    return true
+  }
   return false
 }
 
@@ -73,17 +99,20 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) {
   }
 
   if (pathname === '/config') {
+    const authorized = checkHttpToken(req, url)
+    const body: Record<string, unknown> = {
+      authRequired: Boolean(GATEWAY_TOKEN),
+      protocol: PROTOCOL,
+      defaultPort: DEFAULT_PORT,
+      musicBotUrl: (process.env.MUSIC_BOT_URL || '').trim(),
+    }
+    // Sensitive prefills only with a valid token (or open mode)
+    if (authorized) {
+      body.defaultHost = DEFAULT_HOST
+      body.defaultNickname = DEFAULT_NICKNAME
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(
-      JSON.stringify({
-        defaultHost: DEFAULT_HOST,
-        defaultPort: DEFAULT_PORT,
-        defaultNickname: DEFAULT_NICKNAME,
-        authRequired: Boolean(GATEWAY_TOKEN),
-        protocol: PROTOCOL,
-        musicBotUrl: (process.env.MUSIC_BOT_URL || '').trim(),
-      }),
-    )
+    res.end(JSON.stringify(body))
     return
   }
 
@@ -114,7 +143,12 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) {
   }
   const ext = path.extname(filePath)
   res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' })
-  fs.createReadStream(filePath).pipe(res)
+  const stream = fs.createReadStream(filePath)
+  stream.on('error', () => {
+    if (!res.headersSent) res.writeHead(500)
+    res.end()
+  })
+  stream.pipe(res)
 }
 
 const server = http.createServer(serveStatic)
@@ -134,8 +168,10 @@ server.on('upgrade', (req, socket, head) => {
   if (GATEWAY_TOKEN) {
     const q = url.searchParams.get('token')
     const auth = req.headers.authorization || ''
-    if (q !== GATEWAY_TOKEN && auth !== `Bearer ${GATEWAY_TOKEN}`) {
-      // Reject at upgrade with 401 (URL token or Authorization header)
+    const qOk = q !== null && timingSafeEqualStr(q, GATEWAY_TOKEN)
+    const authOk =
+      auth.startsWith('Bearer ') && timingSafeEqualStr(auth.slice(7), GATEWAY_TOKEN)
+    if (!qOk && !authOk) {
       socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
       socket.destroy()
       return

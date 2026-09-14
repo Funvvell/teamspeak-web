@@ -10,6 +10,16 @@ services:
       - PORT=8080
       - HOST=0.0.0.0
       - PROTOCOL=ts3
+      # 生产必填：网关访问令牌（写入 .env，不要写死在 compose）
+      # 客户端可用 Authorization: Bearer <token>；兼容 ?token= 仅用于旧客户端
+      - GATEWAY_TOKEN=${GATEWAY_TOKEN:-}
+      # 显式接受无鉴权风险时设为 1（不推荐公网）
+      - ALLOW_OPEN=${ALLOW_OPEN:-0}
+      # 是否允许连到私网/本机 TS（内网部署设 1）
+      - ALLOW_PRIVATE_HOSTS=${ALLOW_PRIVATE_HOSTS:-0}
+      # 可选：逗号分隔主机白名单；支持精确主机或 *.suffix 通配
+      # 设置后仅允许列表内主机（仍拒绝 169.254.169.254 等云元数据地址）
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-}
       # 登录页预填的默认服务器地址（在 .env 中设置 DEFAULT_HOST=你的TS服务器IP，例如 1.2.3.4）
       - DEFAULT_HOST=${DEFAULT_HOST:-}
       # 音乐机器人地址（可选，启用顶栏 🎵 面板；在 .env 中设置 MUSIC_BOT_URL=http://机器人IP:3000）

@@ -18,7 +18,8 @@ RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY gateway ./gateway
 COPY shared ./shared
-# tsx runs TypeScript gateway in production (small dep, simpler than bundling)
-RUN npm install tsx --no-save
+RUN chown -R node:node /app
+USER node
 EXPOSE 8080
-CMD ["npx", "tsx", "gateway/src/index.ts"]
+# Required for PROTOCOL=ts3 unless ALLOW_OPEN=1. Prefer Authorization: Bearer over ?token=
+CMD ["node", "node_modules/tsx/dist/cli.mjs", "gateway/src/index.ts"]

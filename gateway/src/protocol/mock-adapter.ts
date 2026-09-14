@@ -166,6 +166,9 @@ export function createMockAdapter(
     async disconnect() {
       for (const t of talkingTimers) clearTimeout(t)
       talkingTimers.clear()
+      voiceHandlers.clear()
+      whisperClients.clear()
+      whisperChannels.clear()
       channels = []
       clients = []
     },

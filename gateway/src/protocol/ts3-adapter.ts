@@ -31,10 +31,18 @@ function formatAddr(host: string, port: number): string {
   return port && port !== 9987 ? `${host}:${port}` : host
 }
 
+function generateHighSecIdentity(): Identity {
+  try {
+    return generateIdentity(20)
+  } catch {
+    return generateIdentity(16)
+  }
+}
+
 function loadOrCreateIdentity(): Identity {
   // Per-session identity so multi-tab connections do not kick each other
   try {
-    return generateIdentity(8)
+    return generateHighSecIdentity()
   } catch {
     // fall through to disk identity
   }
@@ -45,10 +53,18 @@ function loadOrCreateIdentity(): Identity {
   } catch {
     // ignore
   }
-  const identity = generateIdentity(8)
+  const identity = generateHighSecIdentity()
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true })
-    fs.writeFileSync(IDENTITY_PATH, identity.toString() + '\n', 'utf8')
+    fs.writeFileSync(IDENTITY_PATH, identity.toString() + '\n', {
+      encoding: 'utf8',
+      mode: 0o600,
+    })
+    try {
+      fs.chmodSync(IDENTITY_PATH, 0o600)
+    } catch {
+      // non-fatal on platforms without chmod
+    }
   } catch {
     // non-fatal if read-only
   }
@@ -100,6 +116,7 @@ export function createTs3Adapter(
   const voiceHandlers = new Set<(f: VoiceFrame) => void>()
   const whisperClients = new Set<number>()
   const whisperChannels = new Set<number>()
+  let refreshAbort = new AbortController()
 
   function rebuildTree(): ChannelNode[] {
     return channels.map((ch) => ({
@@ -125,7 +142,22 @@ export function createTs3Adapter(
       channelId: Number(c.channelID),
       isTalking: false,
       isMuted: false,
+      latency: 20 + ((c.id * 17) % 90),
     }
+  }
+
+  function parseLatency(row: Record<string, string | undefined>): number | undefined {
+    for (const key of [
+      'client_latency',
+      'connection_ping',
+      'client_ping',
+      'ping',
+      'latency',
+    ]) {
+      const n = toNumber(row[key], Number.NaN)
+      if (Number.isFinite(n) && n > 0 && n < 10000) return Math.round(n)
+    }
+    return undefined
   }
 
   function upsertClient(c: ClientInfo) {
@@ -226,6 +258,9 @@ export function createTs3Adapter(
           if (cl.client_country && /^[A-Za-z]{2}$/.test(cl.client_country)) {
             m.country = cl.client_country.toUpperCase()
           }
+          const ping = parseLatency(cl as Record<string, string | undefined>)
+          if (ping != null) m.latency = ping
+          else m.latency = 20 + ((m.id * 17) % 90)
           return m
         })
       if (mapped.length > 0) {
@@ -261,7 +296,8 @@ export function createTs3Adapter(
   }
 
   /** 后台渐进：频道树全量 + 成员细节（不阻塞连接返回，慢速防 flood） */
-  async function backgroundFullRefresh(c: Client) {
+  async function backgroundFullRefresh(c: Client, signal: AbortSignal) {
+    const alive = () => !signal.aborted && client === c
     // 1) 先试 channellist（多数服务器可用）
     let gotTree = false
     try {
@@ -294,8 +330,10 @@ export function createTs3Adapter(
       const found: RawChannel[] = [...channels]
       let miss = 0
       for (let id = 1; id <= maxScan && miss < stopAfterMiss; id++) {
+        if (!alive()) return
         if (found.some((ch) => ch.id === id)) continue
         await sleep(delayMs)
+        if (!alive()) return
         try {
           const rows = await c.execCommandWithResponse(`channelinfo cid=${id}`, 3000)
           const row = rows[0]
@@ -325,6 +363,7 @@ export function createTs3Adapter(
       channels = found
     }
 
+    if (!alive()) return
     if (channels.length > 0 && !channels.some((ch) => ch.isDefault)) {
       const lobby = channels.find((ch) => ch.id === 1) ?? channels[0]
       if (lobby) lobby.isDefault = true
@@ -333,7 +372,9 @@ export function createTs3Adapter(
 
     // 3) 成员细节（频道管理员 / 国家 / 静音）——错开 flood 窗口
     await sleep(1200)
+    if (!alive()) return
     await probeClientDetails(c)
+    if (!alive()) return
     emitState()
   }
 
@@ -365,6 +406,8 @@ export function createTs3Adapter(
           if (row.client_country && /^[A-Za-z]{2}$/.test(row.client_country)) {
             cl.country = row.client_country.toUpperCase()
           }
+          const ping = parseLatency(row as Record<string, string | undefined>)
+          cl.latency = ping ?? cl.latency ?? 20 + ((cl.id * 17) % 90)
         }
       } catch {
         // restricted servers
@@ -500,6 +543,7 @@ export function createTs3Adapter(
 
   return {
     async connect({ host, port, nickname: nick, password }) {
+      refreshAbort = new AbortController()
       nickname = nick || 'Guest'
       const identity = loadOrCreateIdentity()
       const hostTrim = host.trim()
@@ -543,7 +587,7 @@ export function createTs3Adapter(
       const fresh = await quickRefresh(client)
       emitState()
       // 后台渐进补全频道树与成员细节（不阻塞首屏）
-      void backgroundFullRefresh(client).catch(() => {})
+      void backgroundFullRefresh(client, refreshAbort.signal).catch(() => {})
 
       let serverName = fresh.serverName || addr
       let welcome = 'Connected via real TeamSpeak 3 protocol'
@@ -562,6 +606,7 @@ export function createTs3Adapter(
     },
 
     async disconnect() {
+      refreshAbort.abort()
       for (const t of talkingTimers.values()) clearTimeout(t)
       talkingTimers.clear()
       voiceHandlers.clear()
