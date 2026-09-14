@@ -224,7 +224,10 @@ server {
 | `HOST` | `0.0.0.0` | 监听地址 |
 | `PORT` | `8080` | HTTP / WS 端口 |
 | `PROTOCOL` | `ts3` | `ts3` 真实协议 / `mock` 演示模式 |
-| `GATEWAY_TOKEN` | 空 | 非空则 `/ws` 需 `?token=` 或 `Authorization: Bearer` |
+| `GATEWAY_TOKEN` | 空 | **ts3 模式必填**（或 `ALLOW_OPEN=1`）。非空则 `/ws`、`/config` 需 `?token=` 或 `Authorization: Bearer` |
+| `ALLOW_OPEN` | `0` | 设为 `1` 时允许 ts3 模式无 token 启动（不推荐公网） |
+| `ALLOW_PRIVATE_HOSTS` | `0` | 设为 `1` 时允许连接私网/本机 TS 服务器（兼容旧名 `ALLOW_PRIVATE`） |
+| `ALLOWED_HOSTS` | 空 | 逗号分隔主机白名单；设置后仅允许列表内主机（兼容旧名 `ALLOW_HOSTS`） |
 | `DEFAULT_HOST` | 空 | 首次打开预填服务器地址 |
 | `DEFAULT_PORT` | `9987` | 预填端口 |
 | `DEFAULT_NICKNAME` | 空 | 预填昵称 |
@@ -241,6 +244,12 @@ $env:PROTOCOL = "ts3"
 $env:PORT = "8080"
 npm start
 ```
+
+## 🔒 Security
+
+- **Set `GATEWAY_TOKEN` in production.** `PROTOCOL=ts3` refuses to start without a token unless `ALLOW_OPEN=1` (not recommended on public networks). Pass it as `?token=` or `Authorization: Bearer`.
+- **Optional host allowlist:** set `ALLOWED_HOSTS` to a comma-separated list of permitted TS server hosts; private/localhost targets are blocked by default (`ALLOW_PRIVATE_HOSTS=1` to override).
+- **HTTPS is required for the microphone.** Browsers only grant `getUserMedia` / WebCodecs in a secure context — put the gateway behind TLS (see the HTTPS section above).
 
 ## 🎵 音乐机器人（TSMusicBot）
 
@@ -318,14 +327,16 @@ MUSIC_BOT_URL=https://你的IP或域名:3001 npm start
 | 新标签打开后提示"不安全" | HTTPS 站点打开 HTTP 页面属正常提示；按「HTTPS 部署」给机器人配 HTTPS 并改用 `https://…` 地址即可消除 |
 | 登录 401 | 在机器人 WebUI（直接访问 `MUSIC_BOT_URL`）确认账号密码 |
 | 搜索无结果 | 音源需在机器人 WebUI 扫码登录 / 被限流 |
-| 登录弹窗没有「以游客身份进入」 | 机器人游客模式未开启：编辑机器人 data/config.json，guestMode.enabled 设为 	rue 后重启 |
+| 登录弹窗没有「以游客身份进入」 | 机器人游客模式未开启：编辑机器人 data/config.json，guestMode.enabled 设为 true 后重启 |
 
 ### 安全注意
 
-- 默认**无登录体系**：任何能访问网址的人都能用网关连接任意 TS 服务器。
+- **ts3 模式默认要求 `GATEWAY_TOKEN`**：未设置且未 `ALLOW_OPEN=1` 时网关拒绝启动。任何能访问网址的人在无鉴权时都能让网关连任意 TS 服务器——公网务必设 token，并配合反代鉴权。
+- 默认拒绝连接私网/本机地址；内网部署设 `ALLOW_PRIVATE_HOSTS=1`，或用 `ALLOWED_HOSTS` 做主机白名单。
+- **麦克风仅在 HTTPS（或 localhost）安全上下文可用**：公网部署必须上 HTTPS，否则浏览器直接拒绝 `getUserMedia`。
 - 公网建议：限制源 IP、反向代理加 Basic Auth / SSO，或仅内网开放。
 - 服务器密码只在内存中用于当次连接，不会写日志。
-- 网关内置防护：WS 帧载荷上限（`MAX_PAYLOAD`）、并发连接数上限（`MAX_CONNECTIONS`）、二进制帧防御、未知 opcode 丢弃。
+- 网关内置防护：WS 帧载荷上限（`MAX_PAYLOAD`）、并发连接数上限（`MAX_CONNECTIONS`）、二进制帧防御、未知 opcode 丢弃、连接频率限制。
 
 ---
 

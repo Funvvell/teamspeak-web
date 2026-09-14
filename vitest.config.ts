@@ -14,6 +14,10 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/lib/**'],
       reporter: ['text', 'html'],
+      // Per-file: pure utils must stay covered; browser-only voice pipeline body is not unit-testable in node
+      thresholds: {
+        'src/lib/utils.ts': { lines: 70 },
+      },
     },
   },
 })
