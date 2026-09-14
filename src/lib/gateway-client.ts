@@ -6,6 +6,11 @@ import type {
 export type WsStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
 
 const LS_TOKEN = 'tsweb:token'
+/**
+ * Cap of the offline send queue; oldest control messages are dropped when full.
+ * Keeps reconnect bursts from unbounded growth if the socket stays down.
+ */
+const MAX_SEND_QUEUE = 100
 
 export function getGatewayToken() {
   return localStorage.getItem(LS_TOKEN) || ''
@@ -24,13 +29,24 @@ export function createGatewayClient(handlers: {
   let ws: WebSocket | null = null
   let queue: Array<string | ArrayBuffer | Uint8Array> = []
 
+  function detach(sock: WebSocket | null) {
+    if (!sock) return
+    sock.onopen = null
+    sock.onmessage = null
+    sock.onerror = null
+    sock.onclose = null
+  }
+
   function send(msg: ClientToGateway) {
     const payload = JSON.stringify(msg)
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      queue.push(payload)
+    // Open: send immediately — never drop while the socket is live.
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(payload)
       return
     }
-    ws.send(payload)
+    // Offline: queue, cap at MAX_SEND_QUEUE and drop the oldest control message.
+    if (queue.length >= MAX_SEND_QUEUE) queue.shift()
+    queue.push(payload)
   }
 
   function sendAudio(frame: Uint8Array) {
@@ -41,17 +57,25 @@ export function createGatewayClient(handlers: {
   function connectSocket() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     const token = getGatewayToken()
+    // Auth: browser WebSocket cannot set Authorization headers, and the server
+    // currently accepts `?token=` (and Authorization) on upgrade. Keep the query
+    // path as the working transport. A future improvement may also pass
+    // `new WebSocket(url, ['tsweb.bearer.' + base64url(token)])` as a subprotocol,
+    // but only alongside the query fallback until the server is updated.
     const qs = token ? `?token=${encodeURIComponent(token)}` : ''
     const url = `${proto}://${location.host}/ws${qs}`
     handlers.onSocketStatus('connecting')
-    ws = new WebSocket(url)
-    ws.binaryType = 'arraybuffer'
-    ws.onopen = () => {
+    const sock = new WebSocket(url)
+    ws = sock
+    sock.binaryType = 'arraybuffer'
+    sock.onopen = () => {
+      if (ws !== sock) return
       handlers.onSocketStatus('open')
-      for (const item of queue) ws?.send(item)
+      for (const item of queue) sock.send(item)
       queue = []
     }
-    ws.onmessage = (ev) => {
+    sock.onmessage = (ev) => {
+      if (ws !== sock) return
       if (ev.data instanceof ArrayBuffer) {
         handlers.onAudioFrame?.(ev.data)
         return
@@ -62,23 +86,29 @@ export function createGatewayClient(handlers: {
         handlers.onSocketStatus('error', 'Bad message from gateway')
       }
     }
-    ws.onerror = () => {
+    sock.onerror = () => {
+      if (ws !== sock) return
       handlers.onSocketStatus('error', 'WebSocket error')
     }
-    ws.onclose = () => {
+    sock.onclose = () => {
+      // Detach handlers so late events cannot re-enter after close.
+      if (ws === sock) ws = null
+      detach(sock)
       handlers.onSocketStatus('closed')
-      ws = null
     }
   }
 
   return {
+    // Reconnect policy lives in App (scheduleReconnect); this client is one-shot.
     start: connectSocket,
     send,
     sendAudio,
     close() {
       queue = []
-      ws?.close()
+      const sock = ws
       ws = null
+      detach(sock)
+      sock?.close()
     },
   }
 }
