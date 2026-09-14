@@ -20,12 +20,12 @@ const avatarVariants = cva(
             },
             shape: {
                 square: '',
-                rounded: 'rounded-lg',
+                rounded: 'rounded-full',
             },
         },
         defaultVariants: {
             size: 'default',
-            shape: 'square',
+            shape: 'rounded',
         },
     }
 );

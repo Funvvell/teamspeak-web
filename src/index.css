@@ -2,34 +2,40 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Archival Dispatch — paper tokens for Tailwind utilities */
+/* Apple system tokens for Tailwind utilities */
 :root {
   color-scheme: light;
 
   --brutal-border-width: 1px;
-  --brutal-border-color: #1a1714;
-  --brutal-shadow-color: transparent;
+  --brutal-border-color: rgba(60, 60, 67, 0.16);
+  --brutal-shadow-color: rgba(0, 0, 0, 0.06);
   --brutal-shadow-offset-x: 0px;
-  --brutal-shadow-offset-y: 0px;
+  --brutal-shadow-offset-y: 1px;
   --brutal-pressed-offset: 0px;
-  --brutal-radius: 0px;
-  --brutal-bg: #fbf7ee;
-  --brutal-fg: #1a1714;
-  --brutal-primary: #c23b1a;
-  --brutal-secondary: #2f6b45;
-  --brutal-accent: #c4922a;
-  --brutal-destructive: #9b2f2f;
-  --brutal-success: #2f6b45;
-  --brutal-muted: #e8dfd0;
-  --brutal-ring: #c23b1a;
+  --brutal-radius: 10px;
+  --brutal-bg: #ffffff;
+  --brutal-fg: #1d1d1f;
+  --brutal-primary: #0071e3;
+  --brutal-secondary: #34c759;
+  --brutal-accent: #ff9500;
+  --brutal-destructive: #ff3b30;
+  --brutal-success: #34c759;
+  --brutal-muted: #f5f5f7;
+  --brutal-ring: #0071e3;
 }
 
 .border-3 {
   border-width: var(--brutal-border-width, 1px);
 }
 
-.shadow-brutal,
-.shadow-brutal-sm,
+.shadow-brutal {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+}
+
+.shadow-brutal-sm {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
 .shadow-brutal-lg {
-  box-shadow: none;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
 }

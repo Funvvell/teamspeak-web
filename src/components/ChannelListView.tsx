@@ -122,48 +122,60 @@ export function ChannelListView({
                 : ''
             }`}
           >
-            <button
-              type="button"
-              className="channel-head"
-              onClick={() => onSelect(ch.id)}
-              onDoubleClick={() => onJoin(ch.id)}
-            >
+            {/* Row is a flex container: collapse control is a sibling of the name
+                button (never nested buttons — invalid HTML / broken a11y). */}
+            <div className="channel-head">
               <span className="channel-idx">
                 {String(indexNo.get(ch.id) ?? 0).padStart(2, '0')}
               </span>
-              <span className="channel-name">
-                {hasKids ? (
-                  <span
-                    className="channel-icon collapse-btn"
-                    title={isOpen ? '折叠' : '展开'}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onToggleCollapse(ch.id)
-                    }}
-                  >
-                    {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                  </span>
-                ) : (
-                  <span className="channel-icon">
-                    {ch.isDefault ? (
-                      <Home size={13} />
-                    ) : (
-                      <SpeakerIcon />
-                    )}
-                  </span>
-                )}
-                {hasKids && ch.isDefault && (
-                  <span className="channel-icon">⌂</span>
-                )}
-                {ch.name}
-              </span>
-              <span className="channel-meta">
-                {activeChannelId !== ch.id && (
-                  <span className="channel-hint">双击加入</span>
-                )}
-                {ch.clients.length}/{ch.maxClients === 0 ? '∞' : ch.maxClients}
-              </span>
-            </button>
+              {hasKids ? (
+                <button
+                  type="button"
+                  className="channel-icon collapse-btn"
+                  title={isOpen ? '折叠' : '展开'}
+                  aria-label={isOpen ? '折叠频道' : '展开频道'}
+                  aria-expanded={isOpen}
+                  onClick={() => onToggleCollapse(ch.id)}
+                >
+                  {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                </button>
+              ) : (
+                <span className="channel-icon">
+                  {ch.isDefault ? <Home size={13} /> : <SpeakerIcon />}
+                </span>
+              )}
+              <button
+                type="button"
+                className="channel-name-btn"
+                onClick={() => onSelect(ch.id)}
+                onDoubleClick={() => onJoin(ch.id)}
+                aria-current={
+                  selectedChannelId === ch.id || activeChannelId === ch.id
+                    ? 'true'
+                    : undefined
+                }
+                style={{
+                  display: 'flex',
+                  flex: 1,
+                  minWidth: 0,
+                  alignItems: 'center',
+                  gap: 8,
+                  border: 'none',
+                  background: 'transparent',
+                  padding: 0,
+                  margin: 0,
+                  font: 'inherit',
+                  color: 'inherit',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                }}
+              >
+                <span className="channel-name">{ch.name}</span>
+                <span className="channel-meta">
+                  {ch.clients.length}/{ch.maxClients === 0 ? '∞' : ch.maxClients}
+                </span>
+              </button>
+            </div>
             {ch.clients.length > 0 && (
               <div className="clients">
                 {ch.clients.map((c) => (

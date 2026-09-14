@@ -1,11 +1,11 @@
 /** Inline SVG icons (crisper + steadier than emoji) */
 
-export function MicIcon({ off }: { off?: boolean }) {
+export function MicIcon({ off, size = 14 }: { off?: boolean; size?: number }) {
   return (
     <svg
       viewBox="0 0 24 24"
-      width="14"
-      height="14"
+      width={size}
+      height={size}
       fill="none"
       stroke="currentColor"
       strokeWidth="2"
@@ -21,12 +21,12 @@ export function MicIcon({ off }: { off?: boolean }) {
   )
 }
 
-export function HeadphoneIcon({ off }: { off?: boolean }) {
+export function HeadphoneIcon({ off, size = 14 }: { off?: boolean; size?: number }) {
   return (
     <svg
       viewBox="0 0 24 24"
-      width="14"
-      height="14"
+      width={size}
+      height={size}
       fill="none"
       stroke="currentColor"
       strokeWidth="2"

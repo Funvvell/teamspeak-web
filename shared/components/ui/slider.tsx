@@ -20,21 +20,21 @@ const Slider = React.forwardRef<
         <SliderPrimitive.Track
             className={cn(
                 'relative h-5 w-full grow overflow-hidden rounded-full',
-                'border-3 border-brutal bg-white dark:bg-gray-800',
-                'shadow-brutal-sm'
+                'border border-[#d2d2d7] bg-[#e5e5ea]',
+                'shadow-none'
             )}
         >
-            <SliderPrimitive.Range className="absolute h-full bg-brutal-secondary" />
+            <SliderPrimitive.Range className="absolute h-full bg-[#0066cc] rounded-full" />
         </SliderPrimitive.Track>
         <SliderPrimitive.Thumb
             className={cn(
-                'block h-6 w-6 rounded-full',
-                'border-3 border-brutal bg-brutal-accent',
-                'shadow-brutal-sm',
+                'block h-5 w-5 rounded-full',
+                'border border-[#d2d2d7] bg-white',
+                'shadow-[0_1px_4px_rgba(0,0,0,0.16)]',
                 'transition-all duration-150',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brutal-ring focus-visible:ring-offset-2',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0066cc] focus-visible:ring-offset-2',
                 'disabled:pointer-events-none disabled:opacity-50',
-                'hover:scale-110 active:scale-95',
+                'hover:scale-105 active:scale-95',
                 'cursor-grab active:cursor-grabbing'
             )}
         />

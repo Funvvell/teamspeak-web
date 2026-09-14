@@ -25,31 +25,6 @@ export function Switch({
   )
 }
 
-export function Segmented({
-  value,
-  options,
-  onChange,
-}: {
-  value: string
-  options: { value: string; label: string }[]
-  onChange: (v: string) => void
-}) {
-  return (
-    <div className="segmented">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          className={o.value === value ? 'active' : ''}
-          onClick={() => onChange(o.value)}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 export function SettingRow({
   label,
   children,

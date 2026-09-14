@@ -10,47 +10,47 @@ const buttonVariants = cva(
     [
         'inline-flex items-center justify-center gap-2',
         'border border-brutal rounded-brutal',
-        'font-bold tracking-wider uppercase',
-        'transition-colors duration-100',
-        'focus:outline-none focus-visible:ring-2 focus-visible:ring-brutal-ring focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--brutal-bg,#fbf7ee)]',
-        'disabled:opacity-50 disabled:pointer-events-none',
+        'font-semibold tracking-tight',
+        'transition-all duration-200',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-brutal-ring focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--brutal-bg,#fff)]',
+        'disabled:opacity-40 disabled:pointer-events-none',
         'cursor-pointer',
-        'text-[12px] font-mono',
+        'text-[13px]',
     ],
     {
         variants: {
             variant: {
                 default: [
-                    'bg-brutal-bg text-brutal-fg border-brutal-fg',
+                    'bg-brutal-bg text-brutal-fg border-brutal',
                     'hover:bg-brutal-muted',
                 ],
                 primary: [
-                    'bg-brutal-primary text-white border-[#a82f12]',
-                    'hover:bg-[#a82f12]',
+                    'bg-brutal-primary text-white border-transparent shadow-sm',
+                    'hover:bg-[#0055b3] hover:text-white hover:shadow-md hover:-translate-y-px',
                 ],
                 secondary: [
-                    'bg-brutal-secondary text-white border-[#245436]',
-                    'hover:bg-[#245436]',
+                    'bg-[#34c759] text-white border-transparent',
+                    'hover:bg-[#2db84e]',
                 ],
                 accent: [
-                    'bg-brutal-accent text-[#1a1714] border-[#a67a1f]',
-                    'hover:bg-[#a67a1f]',
+                    'bg-[#ff9500] text-white border-transparent',
+                    'hover:bg-[#e68600]',
                 ],
                 danger: [
-                    'bg-brutal-destructive text-white border-[#7a2424]',
-                    'hover:bg-[#7a2424]',
+                    'bg-[#ff3b30] text-white border-transparent',
+                    'hover:bg-[#e0342a]',
                 ],
                 success: [
-                    'bg-brutal-success text-white border-[#245436]',
-                    'hover:bg-[#245436]',
+                    'bg-[#34c759] text-white border-transparent',
+                    'hover:bg-[#2db84e]',
                 ],
                 outline: [
-                    'bg-transparent text-brutal-fg border-brutal-fg',
-                    'hover:bg-brutal-fg hover:text-brutal-bg',
+                    'bg-transparent text-brutal-fg border-brutal',
+                    'hover:bg-brutal-muted',
                 ],
                 ghost: [
-                    'bg-transparent text-brutal-fg border-transparent',
-                    'hover:bg-brutal-muted',
+                    'bg-transparent text-brutal-primary border-transparent',
+                    'hover:bg-[rgba(0,113,227,0.08)]',
                 ],
                 link: [
                     'bg-transparent text-brutal-primary border-transparent',
@@ -58,11 +58,11 @@ const buttonVariants = cva(
                 ],
             },
             size: {
-                sm: 'h-8 px-2.5 py-1 text-[11px]',
-                default: 'h-9 px-3.5 py-1.5 text-[12px]',
-                lg: 'h-12 px-6 py-2.5 text-[13px]',
-                xl: 'h-16 px-10 py-4 text-[14px]',
-                icon: 'h-9 w-9 p-0',
+                sm: 'h-8 px-3 py-1 text-[12px]',
+                default: 'h-10 px-4 py-1.5 text-[13px]',
+                lg: 'h-12 px-6 py-2.5 text-[15px]',
+                xl: 'h-16 px-10 py-4 text-[16px]',
+                icon: 'h-10 w-10 p-0',
             },
         },
         defaultVariants: {
