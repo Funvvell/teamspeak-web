@@ -2,67 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ===== BrutxUI（Brutx - Neo Brutalism）Design Tokens =====
-   Pastel Neo-Brut 预设：保留粗边框 + 偏移硬阴影的 Brutal 结构，
-   配色改为柔和粉彩（雾蓝紫主色 + 浅灰白底），与项目浅色玻璃风格呼应 */
+/* Archival Dispatch — paper tokens for Tailwind utilities */
 :root {
-  --brutal-border-width: 3px;
-  --brutal-border-color: #1c1c19;
-  --brutal-shadow-color: #1c1c19;
-  --brutal-shadow-offset-x: 4px;
-  --brutal-shadow-offset-y: 4px;
-  --brutal-pressed-offset: 2px;
-  --brutal-radius: 10px;
-  --brutal-bg: #faf7f1;
-  --brutal-fg: #1c1c19;
-  --brutal-primary: #e04a2a;
-  --brutal-secondary: #17a398;
-  --brutal-accent: #f2c14e;
-  --brutal-destructive: #d23f36;
-  --brutal-success: #1f8a4c;
-  --brutal-muted: #efeae0;
-  --brutal-ring: #e04a2a;
+  color-scheme: light;
+
+  --brutal-border-width: 1px;
+  --brutal-border-color: #1a1714;
+  --brutal-shadow-color: transparent;
+  --brutal-shadow-offset-x: 0px;
+  --brutal-shadow-offset-y: 0px;
+  --brutal-pressed-offset: 0px;
+  --brutal-radius: 0px;
+  --brutal-bg: #fbf7ee;
+  --brutal-fg: #1a1714;
+  --brutal-primary: #c23b1a;
+  --brutal-secondary: #2f6b45;
+  --brutal-accent: #c4922a;
+  --brutal-destructive: #9b2f2f;
+  --brutal-success: #2f6b45;
+  --brutal-muted: #e8dfd0;
+  --brutal-ring: #c23b1a;
 }
 
-/* Brutalist UI 工具类 */
 .border-3 {
-  border-width: var(--brutal-border-width, 3px);
+  border-width: var(--brutal-border-width, 1px);
 }
 
-.shadow-brutal {
-  box-shadow:
-    var(--brutal-shadow-offset-x, 4px) var(--brutal-shadow-offset-y, 4px) 0px 0px
-    var(--brutal-shadow-color, #000);
-}
-
-.shadow-brutal-sm {
-  box-shadow:
-    calc(var(--brutal-shadow-offset-x, 4px) / 2)
-    calc(var(--brutal-shadow-offset-y, 4px) / 2) 0px 0px
-    var(--brutal-shadow-color, #000);
-}
-
+.shadow-brutal,
+.shadow-brutal-sm,
 .shadow-brutal-lg {
-  box-shadow:
-    calc(var(--brutal-shadow-offset-x, 4px) * 1.5)
-    calc(var(--brutal-shadow-offset-y, 4px) * 1.5) 0px 0px
-    var(--brutal-shadow-color, #000);
-}
-
-.dark .shadow-brutal {
-  box-shadow:
-    var(--brutal-shadow-offset-x, 4px) var(--brutal-shadow-offset-y, 4px) 0px 0px
-    #fff;
-}
-
-.dark .shadow-brutal-sm {
-  box-shadow:
-    calc(var(--brutal-shadow-offset-x, 4px) / 2)
-    calc(var(--brutal-shadow-offset-y, 4px) / 2) 0px 0px #fff;
-}
-
-.dark .shadow-brutal-lg {
-  box-shadow:
-    calc(var(--brutal-shadow-offset-x, 4px) * 1.5)
-    calc(var(--brutal-shadow-offset-y, 4px) * 1.5) 0px 0px #fff;
+  box-shadow: none;
 }

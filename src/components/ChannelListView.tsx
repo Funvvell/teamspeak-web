@@ -64,6 +64,8 @@ export function ChannelListView({
 
   // Flat list of visible channels in display order (for keyboard nav)
   const flatVisible: number[] = []
+  const indexNo = new Map<number, number>()
+  let seq = 0
   const collect = (parentId: number | null) => {
     let list = (byParent.get(parentId) ?? []).slice().sort((a, b) => {
       const ao = a.order ?? a.id
@@ -74,6 +76,8 @@ export function ChannelListView({
     if (visible) list = list.filter((ch) => visible.has(ch.id))
     for (const ch of list) {
       flatVisible.push(ch.id)
+      seq += 1
+      indexNo.set(ch.id, seq)
       const isOpen = visible ? true : !collapsed.has(ch.id)
       if (isOpen) collect(ch.id)
     }
@@ -124,6 +128,9 @@ export function ChannelListView({
               onClick={() => onSelect(ch.id)}
               onDoubleClick={() => onJoin(ch.id)}
             >
+              <span className="channel-idx">
+                {String(indexNo.get(ch.id) ?? 0).padStart(2, '0')}
+              </span>
               <span className="channel-name">
                 {hasKids ? (
                   <span

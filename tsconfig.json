@@ -5,15 +5,23 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
+    "jsxImportSource": "react",
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
+    "moduleDetection": "force",
     "baseUrl": ".",
     "paths": {
       "@shared/*": ["shared/*"]
     }
   },
-  "include": ["src", "shared", "vite.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "shared/**/*.ts",
+    "shared/**/*.tsx",
+    "vite.config.ts"
+  ]
 }

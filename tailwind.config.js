@@ -5,36 +5,31 @@ export default {
   theme: {
     extend: {
       borderWidth: {
-        3: 'var(--brutal-border-width, 3px)',
+        3: 'var(--brutal-border-width, 1px)',
       },
       borderRadius: {
         brutal: 'var(--brutal-radius, 0px)',
       },
       colors: {
-        'brutal-bg': 'var(--brutal-bg, #ffffff)',
-        'brutal-fg': 'var(--brutal-fg, #000000)',
-        'brutal-primary': 'var(--brutal-primary, #FF6B6B)',
-        'brutal-secondary': 'var(--brutal-secondary, #4ECDC4)',
-        'brutal-accent': 'var(--brutal-accent, #FFE66D)',
-        'brutal-destructive': 'var(--brutal-destructive, #EF476F)',
-        'brutal-success': 'var(--brutal-success, #7FB069)',
-        'brutal-muted': 'var(--brutal-muted, #f3f4f6)',
-        'brutal-ring': 'var(--brutal-ring, #000000)',
+        'brutal-bg': 'var(--brutal-bg, #fbf7ee)',
+        'brutal-fg': 'var(--brutal-fg, #1a1714)',
+        'brutal-primary': 'var(--brutal-primary, #c23b1a)',
+        'brutal-secondary': 'var(--brutal-secondary, #2f6b45)',
+        'brutal-accent': 'var(--brutal-accent, #c4922a)',
+        'brutal-destructive': 'var(--brutal-destructive, #9b2f2f)',
+        'brutal-success': 'var(--brutal-success, #2f6b45)',
+        'brutal-muted': 'var(--brutal-muted, #e8dfd0)',
+        'brutal-ring': 'var(--brutal-ring, #c23b1a)',
       },
       boxShadow: {
-        brutal:
-          'var(--brutal-shadow-offset-x, 4px) var(--brutal-shadow-offset-y, 4px) 0px 0px var(--brutal-shadow-color, #000000)',
-        'brutal-sm':
-          'calc(var(--brutal-shadow-offset-x, 4px) / 2) calc(var(--brutal-shadow-offset-y, 4px) / 2) 0px 0px var(--brutal-shadow-color, #000000)',
-        'brutal-lg':
-          'calc(var(--brutal-shadow-offset-x, 4px) * 1.5) calc(var(--brutal-shadow-offset-y, 4px) * 1.5) 0px 0px var(--brutal-shadow-color, #000000)',
-        'brutal-xl':
-          'calc(var(--brutal-shadow-offset-x, 4px) * 2) calc(var(--brutal-shadow-offset-y, 4px) * 2) 0px 0px var(--brutal-shadow-color, #000000)',
+        brutal: 'none',
+        'brutal-sm': 'none',
+        'brutal-lg': 'none',
+        'brutal-xl': 'none',
       },
     },
   },
   corePlugins: {
-    // 关闭 preflight：保护现有手写样式（styles.css）不被重置
     preflight: false,
   },
   plugins: [],

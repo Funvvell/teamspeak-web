@@ -41,8 +41,8 @@ export function BlinkingSquares({
   twinkleStrength = 0.94,
   intensity = 1,
   opacity = 1,
-  squareColor = '#E04A2A',
-  backgroundColor = '#F5F0E4',
+  squareColor = '#C23B1A',
+  backgroundColor = '#F4EFE3',
   dpr = 1.5,
 }: BlinkingSquaresProps) {
   const ref = useRef<HTMLCanvasElement>(null)

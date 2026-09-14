@@ -41,7 +41,6 @@ import { SettingRow, Switch } from './components/controls'
 import { ChannelListView } from './components/ChannelListView'
 import { BlinkingSquares } from './components/BlinkingSquares'
 import { Button } from '@shared/components/ui/button'
-import { Card } from '@shared/components/ui/card'
 import { Input } from '@shared/components/ui/input'
 import { Switch as BrutalSwitch } from '@shared/components/ui/switch'
 import { Slider as BrutalSlider } from '@shared/components/ui/slider'
@@ -1171,38 +1170,16 @@ export default function App() {
     return (
       <div className="login-page">
         <BlinkingSquares />
-        <div className="login-center">
-          <div className="login-hero">
-            <div className="brand login-brand-top">
-              <div className="brand-mark">TS</div>
-              <span>TeamSpeak Web</span>
-            </div>
-            <h1 className="hero-h1">TeamSpeak Web</h1>
-            <p className="hero-sub">打开浏览器就能聊，不用装</p>
-            <div className="hero-features">
-              {features.map((f) => (
-                <div
-                  className="feature-brutal border-3 shadow-brutal-sm rounded-brutal bg-brutal-bg"
-                  key={f.title}
-                >
-                  <span className="feature-icon">{f.icon}</span>
-                  <span className="feature-text">
-                    <span className="feature-title">{f.title}</span>
-                    <span className="feature-desc">{f.desc}</span>
-                  </span>
-                </div>
-              ))}
-            </div>
-            <p className="hero-note">手机电脑通用 · 一键接音乐机器人</p>
-          </div>
-          <Card className="login-card-brutal border-3 shadow-brutal rounded-brutal bg-brutal-bg">
-            <h2>登录</h2>
-            <p className="login-sub">
-              {connecting
-                ? `正在连接 ${active?.host || ''}:${active?.port || ''}`
-                : '填个地址就开聊，三秒上线。'}
-            </p>
-
+        {connecting && <div className="opening-stamp">OPENING…</div>}
+        <div className="login-main">
+          <div className="login-kicker">Call Sheet · 接入调度单</div>
+          <h1 className="login-title">TeamSpeak Web</h1>
+          <p className="login-sub">
+            {connecting
+              ? `正在接通 ${active?.host || ''}:${active?.port || ''}`
+              : '填地址、署名、盖章上线。像翻档案一样连服务器。'}
+          </p>
+          <div className="login-form">
             <label className={`field${hostError ? ' invalid' : ''}`}>
               <span className="field-label">服务器地址</span>
               <Input
@@ -1317,15 +1294,15 @@ export default function App() {
 
             <div className="recent-block">
               <div className="recent-head">
-                <span>最近连接</span>
+                <span>近期卷宗</span>
                 {recent.length > 0 && (
                   <button type="button" className="link-btn" onClick={clearRecent}>
-                    清除
+                    清空
                   </button>
                 )}
               </div>
               {recent.length === 0 ? (
-                <div className="recent-empty">暂无最近连接</div>
+                <div className="recent-empty">尚无归档记录</div>
               ) : (
                 <ul className="recent-list">
                   {recent.map((r) => (
@@ -1341,12 +1318,36 @@ export default function App() {
                 </ul>
               )}
             </div>
-          </Card>
+          </div>
           <div className="login-foot">
-            <div className="login-tagline">加密 · 声控 · 降噪，一个不少</div>
-            <div className="brand-foot">TeamSpeak Web · 浏览器里的语音房</div>
+            <div className="login-tagline">ECDH · VOX · 降噪 — 全套值守</div>
+            <div className="brand-foot">TeamSpeak Web · 浏览器语音调度室</div>
           </div>
         </div>
+        <aside className="login-cover" aria-label="功能索引">
+          <div className="cover-stamp">Filed · Live</div>
+          <h2 className="cover-title">今晚值守清单</h2>
+          <ol className="cover-list">
+            {features.map((f, i) => (
+              <li key={f.title}>
+                <span className="cover-num">
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <span className="cover-text">
+                  <strong>{f.title}</strong>
+                  <span>{f.desc}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+          <div className="cover-foot">
+            手机 / 电脑通用
+            <br />
+            可挂音乐机器人
+            <br />
+            FORM TS-WEB · REV. ARCHIVAL
+          </div>
+        </aside>
       </div>
     )
   }
@@ -1355,10 +1356,52 @@ export default function App() {
 const renderMain = () => {
     return (
       <div className="main-view">
-        <header className="topbar">
-          <div className="brand">
-            <div className="brand-mark">TS</div>
-            <span>TeamSpeak Web</span>
+        <aside className="spine" aria-label="语音值守栏">
+          <div className="spine-brand">TS-WEB</div>
+          <span
+            className={`spine-status-dot${connected ? ' on' : ''}${uplink ? ' talk' : ''}`}
+            aria-hidden="true"
+          />
+          <button
+            type="button"
+            className={`spine-mic${muted || deafened ? ' off' : ''}${uplink ? ' uplink' : ''}`}
+            onClick={toggleMute}
+            disabled={deafened}
+            title={muted ? '取消静音（Ctrl+M）' : '静音麦克风（Ctrl+M）'}
+            aria-label={muted ? '取消静音' : '静音麦克风'}
+            aria-pressed={muted}
+          >
+            <MicIcon off={muted || deafened || !mic.state.micOn} />
+          </button>
+          <div
+            className="spine-meter"
+            aria-hidden="true"
+            title={`输入电平 ${Math.round(meterLevel * 100)}%`}
+          >
+            <span
+              className="spine-meter-fill"
+              style={{ height: `${Math.round((muted ? 0 : meterLevel) * 100)}%` }}
+            />
+          </div>
+          <button
+            type="button"
+            className={`spine-deafen${deafened ? ' on' : ''}`}
+            onClick={toggleDeafen}
+            title="Deafen：闭麦并静音所有输出（Ctrl+Shift+M）"
+            aria-pressed={deafened}
+            aria-label={deafened ? '取消 Deafen' : 'Deafen'}
+          >
+            <HeadphoneIcon off={deafened} />
+          </button>
+          <div className="spine-nick" title={active?.nickname || ''}>
+            {active?.nickname || '—'}
+          </div>
+        </aside>
+
+        <header className="masthead">
+          <div className="mast-file">
+            <strong>ARCHIVE</strong>
+            <span>NO. {String(tabs.length).padStart(2, '0')}</span>
           </div>
           <div className="tabbar">
             {tabs.map((t) => (
@@ -1408,10 +1451,9 @@ const renderMain = () => {
           <div className="top-search">
             <span className="top-search-icon">⌕</span>
             <input
-              ref={filterInputRef}
               value={filterText}
               onChange={(e) => setFilterText(e.target.value)}
-              placeholder="搜索频道/成员"
+              placeholder="检索索引"
               aria-label="搜索频道/成员"
             />
             <kbd>Ctrl K</kbd>
@@ -1511,7 +1553,7 @@ const renderMain = () => {
           </div>
         )}
 
-        <div className="main">
+        <div className="desk">
           <aside className={`panel tree-panel${mobileTab === 'tree' ? ' m-active' : ''}`}>
             <div className="server-head">
               <div className="server-info">
@@ -1519,7 +1561,8 @@ const renderMain = () => {
                   {active?.serverName || active?.host}
                 </div>
                 <div className="server-meta">
-                  {active?.channels.length ?? 0} 个频道 · {serverMemberCount} 位成员                </div>
+                  INDEX · {active?.channels.length ?? 0} 条 · {serverMemberCount} 人
+                </div>
               </div>
               <button
                 type="button"
@@ -1535,9 +1578,11 @@ const renderMain = () => {
             </div>
             <div className="filter-row">
               <input
+                ref={filterInputRef}
                 value={filterText}
                 onChange={(e) => setFilterText(e.target.value)}
-                placeholder="过滤频道 / 成员"
+                placeholder="过滤索引…"
+                aria-label="过滤频道/成员"
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') setFilterText('')
                 }}
@@ -1550,7 +1595,7 @@ const renderMain = () => {
                 onClick={() => setTreeCollapsed((v) => !v)}
                 title={treeCollapsed ? '展开频道树' : '折叠频道树'}
               >
-                <span className="section-title">频道</span>
+                <span className="section-title">频道索引</span>
                 <span className="section-count">{active?.channels.length ?? 0}</span>
                 <i className="section-arrow">{treeCollapsed ? '▸' : '▾'}</i>
               </button>
@@ -1600,7 +1645,7 @@ const renderMain = () => {
                 onClick={() => setUsersCollapsed((v) => !v)}
                 title={usersCollapsed ? '展开在线用户' : '折叠在线用户'}
               >
-                <span className="section-title">在线用户</span>
+                <span className="section-title">花名册</span>
                 <span className="section-count">{serverMemberCount}</span>
                 <i className="section-arrow">{usersCollapsed ? '▸' : '▾'}</i>
               </button>
@@ -1653,8 +1698,9 @@ const renderMain = () => {
                   <div className="voice-title-row">
                     <h2>{channelName}</h2>
                     <span className="voice-sub">
-                      {channelMembers.length} 位成员 · 32 kbps Opus · 延迟{' '}
-                      {selfLatency != null ? `${selfLatency} ms` : '—'} · 端到端加密                    </span>
+                      REGISTER · {channelMembers.length} 人 · Opus 32 · RTT{' '}
+                      {selfLatency != null ? `${selfLatency} ms` : '—'} · ECDH
+                    </span>
                   </div>
                   {focusMember ? (
                     <div className={`focus-card${statusFor(focusMember).kind === 'talking' ? ' talking' : ''}`}>
@@ -1678,9 +1724,10 @@ const renderMain = () => {
                     </div>
                   )}
                   <div className="member-list-head">
-                    <span>频道成员</span>
+                    <span>在册成员</span>
                     <span className="member-count">
-                      共 {channelMembers.length} 人 · {talkingCount} 人正在说话                    </span>
+                      共 {channelMembers.length} · 说话 {talkingCount}
+                    </span>
                   </div>
                   <div className="member-list">
                     {channelMembers.map((c) => {
@@ -1927,101 +1974,40 @@ const renderMain = () => {
           </aside>
         </div>
 
-        <footer className={`voice-bar${uplink ? ' uplink' : ''}${mobileTab === 'voice' ? ' m-active' : ''}`}>
-          <button
-            type="button"
-            className={`vb-mic${muted || deafened ? ' off' : ''}`}
-            onClick={toggleMute}
-            disabled={deafened}
-            title={muted ? '取消静音（Ctrl+M）' : '静音麦克风（Ctrl+M）'}
-            aria-label={muted ? '取消静音' : '静音麦克风'}
-            aria-pressed={muted}
-          >
-            <span
-              className="vb-ring"
-              style={{
-                background: `conic-gradient(currentColor ${
-                  Math.round(Math.min(1, meterLevel) * 360)
-                }deg, var(--ring-track) 0deg)`,
-              }}
-            />
-            <span className="vb-mic-icon">
-              <MicIcon off={muted || deafened || !mic.state.micOn} />
-            </span>
-          </button>
-
-          <div className="vb-left">
-            <span className="vb-mode">
-              {mic.state.vox.mode === 'open' && '常开'}
-              {mic.state.vox.mode === 'vox' && '声控 VOX'}
-              {mic.state.vox.mode === 'ptt' && '按键 PTT'}
-            </span>
-            {mic.state.vox.mode === 'vox' && (
-              <span className="vb-threshold-label">
-                阈值 {voxPct}% · 悬停 250 ms
-              </span>
-            )}
-            <div className="meter vb-meter">
-              <span
-                className={`vb-fill${uplink ? ' active' : ''}`}
-                style={{ width: `${Math.round(meterLevel * 100)}%` }}
-              />
-              {mic.state.vox.mode === 'vox' && (
-                <i
-                  className="vb-threshold"
-                  style={{
-                    left: `${Math.round(mic.state.vox.threshold * 100)}%`,
-                  }}
-                />
-              )}
-            </div>
-          </div>
-          <div className="vb-center">
-            {mic.state.micOn && mic.state.vox.mode === 'ptt' && (
-              <span className={mic.state.pttHeld && !muted ? 'vb-talking' : ''}>
-                {mic.state.pttHeld && !muted
-                  ? `说话中（已上行 ${talkKbps} kbps）`
-                  : `按住 ${mic.keyLabel(mic.state.vox.pttKey)} 说话`}
-              </span>
-            )}
-            {mic.state.micOn && mic.state.vox.mode === 'vox' && (
-              <span className={uplink ? 'vb-talking' : ''}>
-                {uplink
-                  ? `说话中（已上行 ${talkKbps} kbps）`
-                  : '等待声音…'}
-              </span>
-            )}
-            {mic.state.micOn && mic.state.vox.mode === 'open' && (
-              <span className={uplink ? 'vb-talking' : ''}>
-                {muted ? '已静音' : `常开上行中（${talkKbps} kbps）`}
-              </span>
-            )}
-            {!mic.state.micOn && <span>麦克风未开启</span>}
-          </div>
-          <div className="vb-speakers" aria-live="polite" aria-atomic="false">
-            {speakers.slice(0, 2).map((c) => (
-              <span key={c.id} className="vb-speaker">
-                <span className="dot talking" />
-                {c.nickname}
-              </span>
-            ))}
-            {speakers.length > 2 && (
-              <span className="vb-more">+{speakers.length - 2}</span>
-            )}
-          </div>
-          <div className="vb-actions">
-<Button
-              variant={deafened ? 'primary' : 'outline'}
-              onClick={toggleDeafen}
-              title="Deafen：闭麦并静音所有输出（Ctrl+Shift+M）"
-              aria-pressed={deafened}
-              className="vb-btn"
-            >
-              <HeadphoneIcon off={deafened} />
-              <span>{deafened ? 'Deafen 中' : 'Deafen'}</span>
-            </Button>
-          </div>
-        </footer>
+        <div className="status-strip" aria-live="polite">
+          <span className={`status-cell strong${uplink ? " talk" : ""}`}>
+            {mic.state.micOn
+              ? muted
+                ? "MIC MUTED"
+                : uplink
+                  ? `UPLINK ${talkKbps}K`
+                  : `MIC ${mic.state.vox.mode.toUpperCase()}`
+              : "MIC OFF"}
+          </span>
+          <span className="status-cell">
+            {mic.state.vox.mode === "vox"
+              ? `VOX ${voxPct}%`
+              : mic.state.vox.mode === "ptt"
+                ? `PTT ${mic.keyLabel(mic.state.vox.pttKey)}`
+                : "OPEN"}
+          </span>
+          <span className="status-cell">OPUS 32</span>
+          <span className="status-cell">
+            RTT {selfLatency != null ? `${selfLatency}ms` : "—"}
+          </span>
+          <span className="status-cell">ECDH+EAX</span>
+          <span className="status-cell">
+            {deafened ? "DEAFEN" : connected ? "ON DUTY" : "STANDBY"}
+          </span>
+          <span className="status-spacer" />
+          <span className="status-cell">
+            {speakers.length
+              ? `ON AIR · ${speakers.slice(0, 2).map((c) => c.nickname).join(", ")}${
+                  speakers.length > 2 ? ` +${speakers.length - 2}` : ""
+                }`
+              : "—"}
+          </span>
+        </div>
         <nav className="mobile-tabbar" aria-label="移动端导航">
           <button
             type="button"
@@ -2113,7 +2099,8 @@ const renderMain = () => {
                 label="输入设备"
                 right={
                   <span className="setting-status">
-                    已授权 · 48 kHz · 单声道                  </span>
+                    已授权 · 48 kHz · 单声道
+                  </span>
                 }
               >
                 <select
@@ -2160,7 +2147,8 @@ const renderMain = () => {
                 label="输出设备"
                 right={
                   <span className="setting-status">
-                    {outputDevices.length} 个输出设备可用                  </span>
+                    {outputDevices.length} 个输出设备可用
+                  </span>
                 }
               >
                 <select

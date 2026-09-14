@@ -14,5 +14,5 @@
     },
     "types": ["node"]
   },
-  "include": ["src/**/*", "../shared/**/*"]
+  "include": ["src/**/*", "../shared/types.ts", "../shared/lib/utils.ts"]
 }
