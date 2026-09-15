@@ -32,6 +32,12 @@ export interface SettingsViewProps {
   onGatewayTokenChange: (v: string) => void
   resetSettings: () => void
   saveSettings: () => void
+  catalog?: { bookmarks: { id: string; name: string; host: string; port: number; note?: string }[] }
+  addBookmark?: (name: string, host: string, port: number, nickname?: string) => void
+  removeBookmark?: (id: string) => void
+  syncWhisper?: (clients: number[], channels: number[]) => void
+  whisperClients?: number[]
+  whisperChannels?: number[]
 }
 
 const MODULES = [
@@ -66,6 +72,9 @@ export function SettingsView(props: SettingsViewProps) {
     resetSettings,
     saveSettings,
     onBack,
+    syncWhisper,
+    whisperClients = [],
+    whisperChannels = [],
   } = props
 
   const [module, setModule] = useState<ModuleKey>('capture')
@@ -506,6 +515,63 @@ export function SettingsView(props: SettingsViewProps) {
                     />
                   </div>
                 </div>
+              </div>
+            </section>
+
+            {/* Whisper targets (bound) */}
+            <section className="cfg-section">
+              <div className="cfg-section-head">
+                <div className="cfg-section-title">
+                  <IcWave size={20} style={{ color: 'var(--primary-fixed)' }} />
+                  <div>
+                    <h2>战术耳语列表</h2>
+                    <p>同步到网关的跨频道耳语目标</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => syncWhisper?.(whisperClients, whisperChannels)}
+                >
+                  同耳语到网关
+                </button>
+              </div>
+              <div className="cfg-cards">
+                <div className="cfg-card">
+                  <span className="c-title">客户端目标</span>
+                  <div className="c-body">
+                    {whisperClients.length
+                      ? whisperClients.map((id) => `#${id}`).join(', ')
+                      : '无客户端目标'}
+                  </div>
+                </div>
+                <div className="cfg-card">
+                  <span className="c-title">频道目标</span>
+                  <div className="c-body">
+                    {whisperChannels.length
+                      ? whisperChannels.map((id) => `CID ${id}`).join(', ')
+                      : '无频道目标'}
+                  </div>
+                </div>
+              </div>
+              <div className="toggle-row" style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="dock-btn"
+                  onClick={() => {
+                    const next = [...new Set([...whisperClients, 2])]
+                    syncWhisper?.(next, whisperChannels)
+                  }}
+                >
+                  + 目标陈默 (id 2)
+                </button>
+                <button
+                  type="button"
+                  className="dock-btn"
+                  onClick={() => syncWhisper?.([], whisperChannels)}
+                >
+                  清空客户端目标
+                </button>
               </div>
             </section>
 

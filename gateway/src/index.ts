@@ -8,6 +8,7 @@ import { Session } from './session'
 import { createMockAdapter } from './protocol/mock-adapter'
 import { createTs3Adapter } from './protocol/ts3-adapter'
 import type { AdapterFactory } from './protocol/adapter'
+import { createCatalogStore } from './catalog'
 
 process.on('uncaughtException', (err) => {
   console.error('[gateway] uncaughtException', err)
@@ -86,6 +87,7 @@ function headerTokenOk(req: http.IncomingMessage): boolean {
 
 const createAdapter: AdapterFactory =
   PROTOCOL === 'mock' ? createMockAdapter : createTs3Adapter
+const catalog = createCatalogStore()
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -156,6 +158,12 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) {
       res.end(JSON.stringify({ error: 'unauthorized' }))
       return
     }
+  }
+
+  if (pathname === '/api/catalog') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(catalog.list()))
+    return
   }
 
   let filePath = path.join(DIST, pathname === '/' ? 'index.html' : pathname)

@@ -27,6 +27,7 @@ export interface MainShellProps {
   filterText: string
   setFilterText: (v: string) => void
   filterInputRef: MutableRefObject<HTMLInputElement | null>
+  treeCollapsed: boolean
   setTreeCollapsed: (fn: (v: boolean) => boolean) => void
   treeBodyRef: MutableRefObject<HTMLDivElement | null>
   updateMyChanVisibility: () => void
@@ -43,8 +44,13 @@ export interface MainShellProps {
   closeTab: (id: string) => void
   addTab: () => void
   channelName: string
+  channelPath: string[]
   whisperActive: boolean
+  soundsOn: boolean
+  toggleSounds: () => void
+  musicBotUrl: string
   openSettings: (nav: 'audio' | 'account') => void
+  inviteCopy: () => void
   insecureContext: boolean
   httpsDismissed: boolean
   dismissHttpsBar: () => void
@@ -56,6 +62,7 @@ export interface MainShellProps {
   focusMember: ClientInfo | null
   statusFor: (c: ClientInfo) => { text: string; kind: StatusKind }
   channelMembers: ClientInfo[]
+  talkingCount: number
   meterLevel: number
   muted: boolean
   deafened: boolean
@@ -78,7 +85,10 @@ export interface MainShellProps {
   logText: (l: LogItem) => string
   channelDesc: string
   channelById: Map<number, ChannelNode>
+  userStateCls: (c: ClientInfo) => string
   mic: MicrophoneController
+  voxPct: number
+  speakers: ClientInfo[]
   toggleMute: () => void
   toggleDeafen: () => void
   disconnect?: () => void
@@ -110,8 +120,13 @@ export function MainShell(props: MainShellProps) {
     closeTab,
     addTab,
     channelName,
+    channelPath: _channelPath,
     whisperActive,
+    soundsOn: _soundsOn,
+    toggleSounds: _toggleSounds,
+    musicBotUrl: _musicBotUrl,
     openSettings,
+    inviteCopy: _inviteCopy,
     insecureContext,
     httpsDismissed,
     dismissHttpsBar,
@@ -123,6 +138,7 @@ export function MainShell(props: MainShellProps) {
     focusMember,
     statusFor,
     channelMembers,
+    talkingCount: _talkingCount,
     meterLevel,
     muted,
     deafened,
@@ -145,7 +161,10 @@ export function MainShell(props: MainShellProps) {
     logText,
     channelDesc,
     channelById,
+    userStateCls: _userStateCls,
     mic,
+    voxPct: _voxPct,
+    speakers: _speakers,
     toggleMute,
     toggleDeafen,
     disconnect,
@@ -459,20 +478,54 @@ export function MainShell(props: MainShellProps) {
                           延迟: <strong>{lat(c)}ms</strong>
                         </span>
                         <span>
-                          丢包: <strong>0.0%</strong>
+                          丢包:{' '}
+                          <strong>
+                            {typeof c.packetLoss === 'number'
+                              ? `${(c.packetLoss * 100).toFixed(1)}%`
+                              : '—'}
+                          </strong>
                         </span>
                         <span className="pos">
-                          3D 定位: <strong>0.0°</strong>
+                          3D 定位:{' '}
+                          <strong>
+                            {typeof c.positionDeg === 'number'
+                              ? `${c.positionDeg}°`
+                              : '—'}
+                          </strong>
                         </span>
+                        {c.isPrioritySpeaker && (
+                          <span className="badge green">
+                            <IcPriority size={10} /> 优先发言
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <WaveBars active={st.kind === 'talking'} level={isSelf ? meterLevel : st.kind === 'talking' ? 0.7 : 0} />
-                    <div className="chip-right">
+                    <div className="chip-controls">
+                      <WaveBars
+                        active={st.kind === 'talking'}
+                        level={isSelf ? meterLevel : st.kind === 'talking' ? 0.7 : 0}
+                      />
                       {isSelf ? (
                         <>
-                          <span className="inline-meter" title="输入电平">
-                            <i style={{ width: `${Math.round((muted ? 0 : meterLevel) * 100)}%` }} />
-                          </span>
+                          <div className="member-vol self-vol" title="输入电平">
+                            <span className="member-vol-track" aria-hidden="true">
+                              <i
+                                className="member-vol-fill"
+                                style={{ width: `${Math.round((muted ? 0 : meterLevel) * 100)}%` }}
+                              />
+                            </span>
+                            <input
+                              type="range"
+                              className="member-vol-range"
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={Math.round((muted ? 0 : meterLevel) * 100)}
+                              readOnly
+                              aria-label="输入电平"
+                              tabIndex={-1}
+                            />
+                          </div>
                           <span className="vol-readout">0dB</span>
                         </>
                       ) : (
@@ -495,17 +548,12 @@ export function MainShell(props: MainShellProps) {
                             />
                           </div>
                           <span className="vol-readout">
-                            {vol === 100 ? '0dB' : `${vol - 100 >= 0 ? '+' : ''}${vol - 100}dB`}
+                            {vol === 100
+                              ? '0dB'
+                              : `${vol - 100 >= 0 ? '+' : ''}${vol - 100}dB`}
                           </span>
                         </>
                       )}
-                      <button type="button" className="icon-btn" title="音量/状态" aria-hidden="true" tabIndex={-1}>
-                        {st.kind === 'muted' || st.kind === 'listen' ? (
-                          <IcVolumeUp size={14} />
-                        ) : (
-                          <IcVolumeUp size={14} />
-                        )}
-                      </button>
                     </div>
                   </div>
                 )
@@ -715,13 +763,12 @@ export function MainShell(props: MainShellProps) {
         <div className="dock-user">
           <button
             type="button"
-            className={`dock-mic${muted || deafened ? ' off' : ''}${uplink ? ' uplink' : ''}`}
+            className={`dock-mic${muted ? ' off' : ''}${uplink ? ' uplink' : ''}`}
             onClick={toggleMute}
-            disabled={deafened}
             title={muted ? '取消静音（Ctrl+M）' : '静音麦克风（Ctrl+M）'}
             aria-pressed={muted}
           >
-            {muted || deafened || !mic.state.micOn ? (
+            {muted || !mic.state.micOn ? (
               <IcMicOff size={16} />
             ) : (
               <IcMic size={16} />
@@ -766,9 +813,19 @@ export function MainShell(props: MainShellProps) {
           </span>
         </div>
         <div className="dock-actions">
-          <button type="button" className="dock-btn" onClick={toggleMute} title="麦克风">
-            <IcMic size={14} />
-            麦克风
+          <button
+            type="button"
+            className={`dock-btn mic-btn${muted ? ' muted' : ' live'}`}
+            onClick={toggleMute}
+            aria-pressed={muted}
+            title={muted ? '点击取消静音' : '点击静音麦克风'}
+          >
+            {muted || !mic.state.micOn ? (
+              <IcMicOff size={14} />
+            ) : (
+              <IcMic size={14} />
+            )}
+            {muted ? '已静音' : '麦克风'}
           </button>
           <button
             type="button"

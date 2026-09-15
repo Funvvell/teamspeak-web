@@ -132,7 +132,7 @@ describe('collapsed', () => {
 })
 
 describe('recent', () => {
-  it('saveRecent 截断到 5 条', () => {
+  it('saveRecent 截断到 3 条', () => {
     const list = Array.from({ length: 8 }, (_, i) => ({
       host: `h${i}`,
       port: '9987',
@@ -140,7 +140,7 @@ describe('recent', () => {
       ts: i,
     }))
     saveRecent(list)
-    expect(loadRecent()).toHaveLength(5)
+    expect(loadRecent()).toHaveLength(3)
   })
 
   it('loadRecent 过滤掉无 host 的脏数据', () => {

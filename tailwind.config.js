@@ -54,8 +54,8 @@ export default {
         warn: '#f59e0b',
       },
       fontFamily: {
-        display: ['Space Grotesk', 'system-ui', 'sans-serif'],
-        body: ['Geist', 'Inter', 'system-ui', 'sans-serif'],
+        display: ['Inter', 'Source Han Sans SC', 'Noto Sans SC', 'system-ui', 'sans-serif'],
+        body: ['Inter', 'Source Han Sans SC', 'Noto Sans SC', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
       },
       borderRadius: {

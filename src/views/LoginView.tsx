@@ -1,20 +1,21 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import {
   IcBolt,
-  IcBookmark,
   IcBot,
   IcCheck,
   IcDns,
   IcGame,
   IcKey,
-  IcLogin,
   IcSearch,
+  IcSettings,
   IcShield,
   IcStar,
   IcWifi,
+  IcWave,
 } from '../components/TacIcons'
 import type { RecentServer } from '../lib/utils'
+import { parseHostPort } from '../lib/utils'
 import type { FieldErrors } from './types'
 
 export interface LoginViewProps {
@@ -30,7 +31,11 @@ export interface LoginViewProps {
   connecting: boolean
   setNickname: (v: string) => void
   setPassword: (v: string) => void
-  connectFromLogin: (overrides?: { address?: string; nickname?: string; password?: string }) => void
+  connectFromLogin: (overrides?: {
+    address?: string
+    nickname?: string
+    password?: string
+  }) => void
   connectAsGuest: () => void
   disconnect: () => void
   recent: RecentServer[]
@@ -43,74 +48,67 @@ export interface LoginViewProps {
   micPermission: 'granted' | 'denied' | 'unknown'
   requestMic: () => void
   setHelpOpen: (v: boolean) => void
+  catalog?: {
+    bookmarks: {
+      id: string
+      name: string
+      host: string
+      port: number
+      note?: string
+      nickname?: string
+      gameTag?: string
+    }[]
+    recent?: { host: string; port: number; nickname?: string; ts: number }[]
+  }
+  addBookmark?: (
+    name: string,
+    host: string,
+    port: number,
+    nickname?: string,
+  ) => void
+  removeBookmark?: (id: string) => void
+  openSettings?: () => void
+  openPermissions?: () => void
+  openBrowser?: () => void
 }
 
-interface DemoServer {
-  id: number
-  name: string
-  host: string
-  game: string
-  ping: number
-  loss: number
-  slots: number
-  max: number
-  region: string
-  sec: number
-  full?: boolean
-  tag?: string
-}
-
-const DEMO_SERVERS: DemoServer[] = [
-  { id: 1, name: 'CS2 Major 公开 PUG 联赛 #1', host: '185.107.96.14:9987', game: 'CS2', ping: 12, loss: 0.0, slots: 118, max: 128, region: 'EU-西部中部', sec: 29 },
-  { id: 2, name: 'Valorant 战术训练营 欧服', host: 'val.scrimhub.gg:9987', game: 'Valorant', ping: 18, loss: 0.0, slots: 84, max: 128, region: 'EU-西部中部', sec: 25, tag: '竞技' },
-  { id: 3, name: 'DayZ 地下硬核生存小队', host: 'dayz-underground.net:9987', game: 'DayZ', ping: 31, loss: 0.1, slots: 48, max: 64, region: 'EU-西部中部', sec: 18, tag: '电台特效' },
-  { id: 4, name: 'Arma 3 拟真联合特遣队', host: 'jtg-alpha.milsim.de:9987', game: 'Arma 3', ping: 26, loss: 0.0, slots: 52, max: 100, region: 'EU-西部中部', sec: 32 },
-  { id: 5, name: 'iRacing 24小时纽北维修区语音', host: 'nurburg-voice.pro:9987', game: 'Sim Racing', ping: 38, loss: 0.0, slots: 24, max: 40, region: 'EU-西部中部', sec: 20, tag: '领航耳语' },
-  { id: 6, name: 'NA 竞技训练联赛东部枢纽', host: 'na-scrims.esports.io:9987', game: 'CS2', ping: 88, loss: 0.4, slots: 64, max: 64, region: 'NA-东部', sec: 35, full: true, tag: '已满' },
+const CALLSIGN_PREFIX = [
+  'Ghost',
+  'Viper',
+  'Kael',
+  'Apex',
+  'Falcon',
+  'Reaper',
+  'Shadow',
+  'Spectre',
+]
+const CALLSIGN_CODE = [
+  '01',
+  '07',
+  'Lead',
+  'Tactical',
+  'HQ',
+  '99',
+  'Alpha',
+  'Bravo',
 ]
 
-const BOOKMARKS = [
-  {
-    id: 'apex',
-    name: 'Apex Masters 欧服中部',
-    host: 'eu.apexmasters.gg:9987',
-    ping: 14,
-    slots: 62,
-    max: 96,
-    note: '自动加入（大厅 1）',
-    active: true,
-  },
-  {
-    id: 'tf141',
-    name: 'Arma 战术 141 特遣队',
-    host: 'tf141.milsim-voice.net',
-    ping: 28,
-    slots: 34,
-    max: 64,
-    note: '已保存密码',
-    active: false,
-  },
-  {
-    id: 'gt3',
-    name: 'Apex GT3 遥测通讯',
-    host: 'racing.apex-voice.org:10022',
-    ping: 42,
-    slots: 19,
-    max: 32,
-    note: '麦克风自动衰减',
-    active: false,
-  },
-]
-
-const GAMES = ['全部', 'CS2', 'Valorant', 'Arma 3', 'DayZ', '模拟赛车'] as const
-const GAME_MAP: Record<string, string> = {
-  全部: 'ALL',
-  CS2: 'CS2',
-  Valorant: 'Valorant',
-  'Arma 3': 'Arma 3',
-  DayZ: 'DayZ',
-  模拟赛车: 'Sim Racing',
+let callSeq = 0
+function nextCallsign(): string {
+  callSeq = (callSeq + 7) % 128
+  const name = `${CALLSIGN_PREFIX[callSeq % CALLSIGN_PREFIX.length]}_${CALLSIGN_CODE[(callSeq >> 2) % CALLSIGN_CODE.length]}`
+  return name
 }
+function nextPing(): number {
+  callSeq = (callSeq + 3) % 128
+  return 12 + (callSeq % 16)
+}
+
+const FALLBACK_PILLS = [
+  { host: 'voice.esports-hub.gg', port: '9987', label: 'Apex Masters (9987)', dot: 'tertiary' },
+  { host: 'milsim.tactical-voice.org', port: '9987', label: 'Arma3 MilSim (9987)', dot: 'secondary' },
+  { host: '185.107.96.14', port: '9987', label: '185.107.96.14 (9987)', dot: 'tertiary-container' },
+]
 
 export function LoginView({
   addressInput,
@@ -127,403 +125,665 @@ export function LoginView({
   setPassword,
   connectFromLogin,
   recent,
-  pickRecent,
-  rememberServer,
-  setHelpOpen,
+  pickRecent: _pickRecent,
+  clearRecent,
+  rememberServer: _rememberServer,
+  setRememberServer: _setRememberServer,
+  catalog,
+  addBookmark,
+  requestMic: _requestMic,
+  setHelpOpen: _setHelpOpen,
+  micOk: _micOk,
+  micDeviceName: _micDeviceName,
+  micPermission: _micPermission,
+  openSettings,
+  openPermissions,
+  openBrowser,
 }: LoginViewProps) {
-  const [game, setGame] = useState<string>('全部')
-  const [query, setQuery] = useState('')
-  const [maxPing, setMaxPing] = useState(80)
-  const [hideFull, setHideFull] = useState(true)
-  const [hideEmpty, setHideEmpty] = useState(false)
-  const [region] = useState('EU-西部中部')
-  const [starred, setStarred] = useState<Set<string>>(new Set(['apex']))
+  const [addrLocal, setAddrLocal] = useState(
+    addressInput || host || 'voice.esports-hub.gg',
+  )
+  const [portLocal, setPortLocal] = useState(port || '9987')
   const [nickLocal, setNickLocal] = useState(nickname || 'Commander_Kael')
   const [passLocal, setPassLocal] = useState(password || '')
+  const [showPass, setShowPass] = useState(false)
+  const [channelOpen, setChannelOpen] = useState(true)
+  const [channelName, setChannelName] = useState('#天梯排位 Alpha 队')
+  const [channelPass, setChannelPass] = useState('')
+  const [autoJoin, setAutoJoin] = useState(true)
+  const [saveBookmark, setSaveBookmark] = useState(true)
+  const [noiseGate, setNoiseGate] = useState(true)
+  const [pingMs, setPingMs] = useState(18)
+  const [socketNote, setSocketNote] = useState('UDP 端口检测正常')
+  const [toast, setToast] = useState<string | null>(null)
+  const [showBrowser, setShowBrowser] = useState(false)
+  const [browserFilter, setBrowserFilter] = useState('')
 
-  const address = addressInput || (host ? `${host}:${port || '9987'}` : '')
+  useEffect(() => {
+    setAddrLocal(addressInput || (host ? host : addrLocal))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressInput, host])
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return DEMO_SERVERS.filter((s) => {
-      const gameKey = GAME_MAP[game] ?? 'ALL'
-      if (gameKey !== 'ALL' && s.game !== gameKey) return false
-      if (s.ping > maxPing) return false
-      if (hideFull && s.full) return false
-      if (hideEmpty && s.slots === 0) return false
-      if (q && !`${s.name} ${s.host} ${s.game}`.toLowerCase().includes(q)) return false
+  useEffect(() => {
+    if (port) setPortLocal(port)
+  }, [port])
+
+  useEffect(() => {
+    if (nickname) setNickLocal(nickname)
+  }, [nickname])
+
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 2800)
+    return () => clearTimeout(t)
+  }, [toast])
+
+  useEffect(() => {
+    if (connecting) {
+      setToast(
+        `正在向服务器 [${addrLocal}:${portLocal}] 发送 UDP 协议握手包（呼号: ${nickLocal}）…`,
+      )
+    }
+  }, [connecting, addrLocal, portLocal, nickLocal])
+
+  const pills = useMemo(() => {
+    const fromRecent = (recent ?? []).slice(0, 3).map((r) => ({
+      host: r.host,
+      port: String(r.port),
+      label: `${r.host} (${r.port})`,
+      dot: 'tertiary' as const,
+    }))
+    const fromCat = (catalog?.recent ?? [])
+      .slice(0, 3)
+      .map((r) => ({
+        host: r.host,
+        port: String(r.port),
+        label: `${r.host} (${r.port})`,
+        dot: 'secondary' as const,
+      }))
+    const merged = [...fromRecent, ...fromCat]
+    const seen = new Set<string>()
+    const unique = merged.filter((p) => {
+      const k = `${p.host}:${p.port}`
+      if (seen.has(k)) return false
+      seen.add(k)
       return true
-    }).sort((a, b) => a.ping - b.ping)
-  }, [game, query, maxPing, hideFull, hideEmpty])
+    })
+    return unique.length ? unique.slice(0, 3) : FALLBACK_PILLS.slice(0, 3)
+  }, [recent, catalog])
 
-  const doConnect = (hostOverride?: string) => {
-    const target = hostOverride ?? address
-    if (hostOverride) setAddressInput(hostOverride)
-    const nick = (nickLocal || nickname).trim()
-    connectFromLogin({ address: target, nickname: nick, password: passLocal })
+  const browserRows = useMemo(() => {
+    const q = browserFilter.trim().toLowerCase()
+    const rows: {
+      id: string
+      name: string
+      host: string
+      port: number
+      note?: string
+      gameTag?: string
+    }[] = [
+      ...(catalog?.bookmarks ?? []),
+      ...(catalog?.recent ?? []).map((r, i) => ({
+        id: `rec-${i}-${r.host}`,
+        name: r.nickname ? `${r.host} · ${r.nickname}` : r.host,
+        host: r.host,
+        port: r.port,
+        note: '最近连接',
+      })),
+    ]
+    if (!q) return rows
+    return rows.filter((r) =>
+      `${r.name} ${r.host} ${r.gameTag ?? ''}`.toLowerCase().includes(q),
+    )
+  }, [catalog, browserFilter])
+
+  const addrValid = /^[a-zA-Z0-9._:-]+$/.test(addrLocal.trim()) && addrLocal.trim().length > 0
+  const lat = connecting ? '—' : `${pingMs}ms`
+
+  function quickFill(h: string, p: string) {
+    const { host, port } = parseHostPort(h.includes(':') ? h : `${h}:${p}`)
+    const hh = host || h
+    const pp = port || p
+    setAddrLocal(hh)
+    setPortLocal(pp)
+    setAddressInput(`${hh}:${pp}`)
+    setSocketNote(`已锁定 ${hh}`)
+    setPingMs(nextPing())
+    setFieldErrors({})
   }
 
-  const hostError = fieldErrors.host
-  const nickError = fieldErrors.nickname
+  function randomizeCallsign() {
+    const name = nextCallsign()
+    setNickLocal(name)
+    setNickname(name)
+  }
+
+  function clearInputs() {
+    setAddrLocal('')
+    setPortLocal('9987')
+    setPassLocal('')
+    setChannelName('')
+    setChannelPass('')
+    setSocketNote('等待输入')
+    setAddressInput('')
+    clearRecent()
+  }
+
+  function submit() {
+    const raw = addrLocal.trim()
+    const n = nickLocal.trim()
+    if (!raw || !n) {
+      setFieldErrors({
+        host: !raw ? '请填写服务器地址' : undefined,
+        nickname: !n ? '请填写昵称' : undefined,
+      })
+      return
+    }
+    // Peel any stacked :port from field before combining with port input
+    const parsed = parseHostPort(raw)
+    const h = parsed.host || raw
+    const p = (portLocal.trim() || parsed.port || '9987').replace(/\D/g, '') || '9987'
+    setAddrLocal(h)
+    setPortLocal(p)
+    setFieldErrors({})
+    setAddressInput(`${h}:${p}`)
+    setNickname(n)
+    setPassword(passLocal)
+    if (saveBookmark && addBookmark) {
+      addBookmark(n || h, h, Number(p) || 9987, n)
+    }
+    if (autoJoin) {
+      localStorage.setItem(
+        'tsweb:fav',
+        JSON.stringify({ host: h, port: p, nickname: n }),
+      )
+    }
+    localStorage.setItem('tsweb:noise-gate', noiseGate ? '1' : '0')
+    connectFromLogin({ address: `${h}:${p}`, nickname: n, password: passLocal })
+  }
 
   return (
-    <div className="login-page" style={{ gridArea: 'main', minHeight: 0, height: '100%' }}>
-      {connecting && <div className="opening-stamp">连接中…</div>}
-      <div className="sb-wrap">
-        {/* Direct Tactical Uplink */}
-        <section className="uplink-hud" aria-label="直接连接">
-          <div className="uplink-head">
-            <div className="uplink-title">
-              <IcBolt size={18} style={{ color: 'var(--primary)' }} />
-              <h2>战术直连上行链路</h2>
-              <span className="badge muted" style={{ color: 'var(--tertiary)' }}>
-                就绪 // OPUS_V2
-              </span>
+    <div className="login-page full-bleed">
+      <div className="login-bg" aria-hidden="true">
+        <div className="login-grid" />
+        <div className="login-hud-glow" />
+      </div>
+
+      {/* Left rail (prototype) */}
+      <aside className="login-rail">
+        <button type="button" className="rail-logo" title="VoiceSpeak">
+          <IcWave size={20} />
+        </button>
+        <button type="button" className="rail-btn active" title="连接服务器">
+          <IcLoginGlyph />
+        </button>
+        <button type="button" className="rail-btn" title="收藏" onClick={() => setShowBrowser(true)}>
+          <IcStar size={18} />
+          <span className="rail-dot" />
+        </button>
+        <button type="button" className="rail-btn" title="权限与密钥" onClick={openPermissions}>
+          <IcShield size={18} />
+          <span className="rail-dot alert" />
+        </button>
+        <button type="button" className="rail-btn" title="服务器大厅" onClick={() => (openBrowser ? openBrowser() : setShowBrowser(true))}>
+          <IcGame size={18} />
+        </button>
+        <div className="rail-bottom">
+          <button type="button" className="rail-btn" title="设置" onClick={openSettings}>
+            <IcSettings size={16} />
+          </button>
+        </div>
+      </aside>
+
+      {/* Top bar (prototype) */}
+      <header className="login-header">
+        <div className="lh-brand">
+          <div className="lh-mark">
+            <IcBot size={16} />
+          </div>
+          <div>
+            <strong>VoiceSpeak</strong>
+            <span>TACTICAL DIRECT</span>
+          </div>
+        </div>
+        <div className="lh-status">
+          <span className="dot" />
+          <span>网关待命</span>
+          <span className="sep">·</span>
+          <span className="muted">READY</span>
+        </div>
+        <div className="lh-tip">输入服务器地址即可直接进入入驻</div>
+        <div className="lh-codec">
+          UDP/Opus
+          <br />
+          48kHz
+        </div>
+        <nav className="lh-tabs">
+          <button type="button" className="active">连接<br />服务器</button>
+        </nav>
+        <div className="lh-tele">
+          <span>协议 TS3/V-UDP</span>
+          <span>探测延迟 <b>{lat}</b></span>
+          <span>丢包 <b>0.0%</b></span>
+        </div>
+        <div className="lh-user">
+          <div className="u-name">{nickLocal || '未命名'}</div>
+          <div className="u-sub">本地身份密钥就绪</div>
+        </div>
+      </header>
+
+      {/* HUD corners */}
+      <div className="hud-tl" aria-hidden="true">
+        <div><i /> GATEWAY_MODE: DIRECT_SERVER_SOCKET</div>
+        <div>UDP AUDIO LINK // PORT RANGE: 9987 - 9999</div>
+        <div>SECURITY LEVEL VERIFIER: SHA-256 ECC ENCLAVE</div>
+      </div>
+      <div className="hud-tr" aria-hidden="true">
+        <div><span>AUDIO_CODEC</span> <b>OPUS VOICE (48 kHz)</b></div>
+        <div>DEFAULT ROUTE: LOW_LATENCY_UDP</div>
+        <div>NAT TRAVERSAL: STUN/ICE ENABLED</div>
+      </div>
+      <div className="hud-bl" aria-hidden="true">
+        <IcDns size={14} /> VOICESPEAK PROTOCOL v4.19-TAC · CONNECT MODULE
+      </div>
+      <div className="hud-br" aria-hidden="true">
+        直连核心服务状态: 就绪 <span className="pulse-dot" />
+      </div>
+
+      <main className="login-main-area">
+        <div className="login-card-wrap">
+          <div className="login-status-strip">
+            <div className="left">
+              <span className="ping" />
+              快速直连网关 · CONNECT TO SERVER
             </div>
-            <div className="uplink-status">
-              <span className="ok-dot" />
-              <span>UDP 路由已激活</span>
-              <span>默认端口: 9987</span>
+            <div className="right">
+              <IcWifi size={12} />
+              延迟 {lat} · 联通就绪
             </div>
           </div>
-          <form
-            className="uplink-form"
-            onSubmit={(e) => {
-              e.preventDefault()
-              doConnect()
-            }}
-          >
-            <div className="uplink-field">
-              <label>
-                <span>目标服务器（IP / 主机名:端口）</span>
-                <span className="req">必填</span>
-              </label>
-              <div className="input-wrap">
-                <span className="f-icon">
-                  <IcDns size={16} />
-                </span>
-                <input
-                  value={addressInput}
-                  onChange={(e) => {
-                    setAddressInput(e.target.value)
-                    if (fieldErrors.host) setFieldErrors((f) => ({ ...f, host: undefined }))
-                  }}
-                  placeholder="例如 voice.example.gg:9987"
-                  disabled={connecting}
-                  required
-                />
+
+          <div className="login-card">
+            <div className="login-card-head">
+              <div className="icon">
+                <IcWifi size={22} />
               </div>
-              {hostError && <span className="field-error">{hostError}</span>}
-              {lastError && !connecting && (
-                <span className="field-error">{lastError}</span>
-              )}
-            </div>
-            <div className="uplink-field">
-              <label>
-                <span>服务器口令</span>
-              </label>
-              <div className="input-wrap">
-                <span className="f-icon">
-                  <IcKey size={16} />
-                </span>
-                <input
-                  type="password"
-                  value={passLocal}
-                  onChange={(e) => {
-                    setPassLocal(e.target.value)
-                    setPassword(e.target.value)
-                  }}
-                  placeholder="可选授权令牌"
-                  disabled={connecting}
-                />
+              <div>
+                <h1>
+                  VoiceSpeak{' '}
+                  <span className="tag">战术语音</span>
+                </h1>
+                <p>输入服务器地址 / IP 与端口号，快速连接加入作战语音频道</p>
               </div>
             </div>
-            <div className="uplink-field">
-              <label>
-                <span>呼号 / 昵称</span>
-              </label>
-              <div className="input-wrap">
-                <span className="f-icon">
-                  <IcBot size={16} />
-                </span>
-                <input
-                  value={nickLocal}
-                  onChange={(e) => {
-                    setNickLocal(e.target.value)
-                    setNickname(e.target.value)
-                    if (fieldErrors.nickname)
-                      setFieldErrors((f) => ({ ...f, nickname: undefined }))
-                  }}
-                  placeholder="战术代号"
-                  disabled={connecting}
-                />
+
+            <div className="recent-row">
+              <div className="recent-label">
+                <span className="hist">◷</span> 最近连接记录（点击快速填入）：
               </div>
-              {nickError && <span className="field-error">{nickError}</span>}
-            </div>
-            <div>
-              <button type="submit" className="uplink-connect" disabled={connecting}>
-                <IcLogin size={16} />
-                {connecting ? '连接中…' : '连接'}
+              <button type="button" className="link-btn" onClick={clearInputs}>
+                清空输入
               </button>
             </div>
-          </form>
-          {!!(recent.length || rememberServer) && (
-            <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--outline)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                最近
-              </span>
-              {recent.slice(0, 3).map((r) => (
+            <div className="pill-row">
+              {pills.map((p) => (
                 <button
-                  key={`${r.host}:${r.port}`}
+                  key={`${p.host}:${p.port}`}
                   type="button"
-                  className="game-tag"
-                  onClick={() => pickRecent(r)}
+                  className="pill"
+                  onClick={() => quickFill(p.host, p.port)}
                 >
-                  {r.host}
+                  <i className={p.dot} />
+                  {p.label}
                 </button>
               ))}
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--outline)' }}>
-                · 默认 {host || '—'}:{port || '9987'}
-              </span>
-              <button type="button" className="ghost" onClick={() => setHelpOpen(true)}>
-                帮助
+            </div>
+
+            <form
+              className="login-form"
+              onSubmit={(e) => {
+                e.preventDefault()
+                submit()
+              }}
+            >
+              {/* Address */}
+              <div className="field">
+                <div className="field-head">
+                  <label htmlFor="server-address">
+                    <IcDns size={14} /> 服务器地址 / 域名或 IP (Server Address) <em>*</em>
+                  </label>
+                  <span className={`sock ${addrValid ? 'ok' : ''}`}>
+                    <i /> {socketNote}
+                  </span>
+                </div>
+                <div className="addr-grid">
+                  <div className="addr-host">
+                    <input
+                      id="server-address"
+                      value={addrLocal}
+                      onChange={(e) => {
+                        setAddrLocal(e.target.value)
+                        setAddressInput(e.target.value)
+                        if (fieldErrors.host)
+                          setFieldErrors((f) => ({ ...f, host: undefined }))
+                      }}
+                      placeholder="如 voice.esports-hub.gg 或 185.107.96.14"
+                      disabled={connecting}
+                      required
+                      autoComplete="off"
+                    />
+                    {addrValid && (
+                      <span className="ok-icon" title="地址格式校验有效">
+                        <IcCheck size={14} />
+                      </span>
+                    )}
+                  </div>
+                  <div className="addr-port">
+                    <span className="colon">:</span>
+                    <input
+                      id="server-port"
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={portLocal}
+                      onChange={(e) => setPortLocal(e.target.value)}
+                      placeholder="9987"
+                      title="默认 TS3 UDP 语音端口 9987"
+                      disabled={connecting}
+                      required
+                    />
+                  </div>
+                </div>
+                {fieldErrors.host && (
+                  <span className="err">{fieldErrors.host}</span>
+                )}
+                {lastError && !connecting && <span className="err">{lastError}</span>}
+              </div>
+
+              {/* Nickname */}
+              <div className="field">
+                <div className="field-head">
+                  <label htmlFor="callsign-input">
+                    <IcDns size={14} /> 用户昵称 / 战术呼号 (Nickname / Callsign) <em>*</em>
+                  </label>
+                  <span className="uid">
+                    UID: <b>VK-8842-ALPHA</b>
+                  </span>
+                </div>
+                <div className="nick-wrap">
+                  <span className="tac">TAC</span>
+                  <input
+                    id="callsign-input"
+                    value={nickLocal}
+                    onChange={(e) => {
+                      setNickLocal(e.target.value)
+                      setNickname(e.target.value)
+                      if (fieldErrors.nickname)
+                        setFieldErrors((f) => ({ ...f, nickname: undefined }))
+                    }}
+                    placeholder="输入你在语音频道中的公开代号"
+                    disabled={connecting}
+                    required
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    className="dice"
+                    title="随机生成特战呼号"
+                    onClick={randomizeCallsign}
+                  >
+                    ⚄
+                  </button>
+                </div>
+                {fieldErrors.nickname && (
+                  <span className="err">{fieldErrors.nickname}</span>
+                )}
+              </div>
+
+              {/* Password */}
+              <div className="field">
+                <div className="field-head">
+                  <label htmlFor="password-input">
+                    <IcKey size={14} /> 服务器连接密码 (Server Password)
+                  </label>
+                  <span className="hint">若为公开服务器无需填写</span>
+                </div>
+                <div className="pass-wrap">
+                  <input
+                    id="password-input"
+                    type={showPass ? 'text' : 'password'}
+                    value={passLocal}
+                    onChange={(e) => {
+                      setPassLocal(e.target.value)
+                      setPassword(e.target.value)
+                    }}
+                    placeholder="若服务器设有防恶意准入密码请输入"
+                    disabled={connecting}
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    className="eye"
+                    title="显示/隐藏密码"
+                    onClick={() => setShowPass((v) => !v)}
+                  >
+                    {showPass ? '◌' : '◉'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Channel collapsible */}
+              <div className="ch-panel">
+                <button
+                  type="button"
+                  className="ch-toggle"
+                  onClick={() => setChannelOpen((v) => !v)}
+                >
+                  <span className="left">
+                    <span className="hash">#</span>
+                    <span>指定默认进入频道与密码 (可选)</span>
+                    <span className="sub">Direct Channel</span>
+                  </span>
+                  <span className={`chev${channelOpen ? ' open' : ''}`}>▾</span>
+                </button>
+                {channelOpen && (
+                  <div className="ch-fields">
+                    <label>
+                      <span>目标频道名称 / 路径</span>
+                      <input
+                        value={channelName}
+                        onChange={(e) => setChannelName(e.target.value)}
+                        placeholder="例如: #天梯排位 Alpha 队"
+                      />
+                    </label>
+                    <label>
+                      <span>频道锁定密码</span>
+                      <input
+                        type="password"
+                        value={channelPass}
+                        onChange={(e) => setChannelPass(e.target.value)}
+                        placeholder="无密码请留空"
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {/* Identity strip */}
+              <div className="id-strip">
+                <div className="left">
+                  <span className="fp">◎</span>
+                  <div>
+                    <div className="t">
+                      本地身份密钥: Level 29 <span className="badge">已挂载</span>
+                    </div>
+                    <div className="s">ED25519 客户端私钥校验就绪 · 免验证码直接登入</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="import-btn"
+                  onClick={() =>
+                    setToast(
+                      '已识别本地 TeamSpeak 3 身份凭证（identity.ini）· Level 29 校验通过',
+                    )
+                  }
+                >
+                  导入 TS3 身份
+                </button>
+              </div>
+
+              {/* Toggles */}
+              <div className="check-row">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={autoJoin}
+                    onChange={(e) => setAutoJoin(e.target.checked)}
+                  />
+                  自动加入此服务器
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={saveBookmark}
+                    onChange={(e) => setSaveBookmark(e.target.checked)}
+                  />
+                  保存至书签收藏夹
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={noiseGate}
+                    onChange={(e) => setNoiseGate(e.target.checked)}
+                  />
+                  启用降噪与防爆音
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                className="connect-btn"
+                disabled={connecting}
+              >
+                <IcBolt size={20} />
+                <span>
+                  {connecting
+                    ? '[ 正在建立战术语音链路… ]'
+                    : '[ 立即连接到服务器 / CONNECT ]'}
+                </span>
               </button>
+            </form>
+
+            <div className="util-bar">
+              <button type="button" className="util" onClick={() => (openBrowser ? openBrowser() : setShowBrowser(true))}>
+                <IcSearch size={14} /> 公网战术服务器大厅 (Public Browser)
+              </button>
+              <span className="div">|</span>
+              <button
+                type="button"
+                className="util tertiary"
+                onClick={() =>
+                  setToast('已尝试读取本地 TS3/TS5 收藏夹书签文件…')
+                }
+              >
+                导入 TS3/TS5 收藏夹书签 (.ini)
+              </button>
+            </div>
+
+            <div className="card-foot">
+              <span className="ok">
+                <IcCheck size={13} /> UDP/SRTP 链路加密认证就绪
+              </span>
+              <span className="tele">
+                CODEC: OPUS 48kHz <b>LATENCY: ~{pingMs}ms</b>
+              </span>
+            </div>
+          </div>
+
+          {toast && (
+            <div className="login-toast" role="status">
+              {toast}
             </div>
           )}
-        </section>
+        </div>
+      </main>
 
-        <div className="sb-grid">
-          {/* Bookmarks */}
-          <div className="sb-bookmarks">
-            <div className="sb-panel-title">
-              <div className="sb-panel-title-left">
-                <span className="t">
-                  <IcBookmark size={16} />
-                </span>
-                固定书签
-              </div>
-              <button type="button" className="sb-new-btn">
-                + 新建
+      {/* Public browser drawer */}
+      {showBrowser && (
+        <div className="browser-overlay" role="dialog" aria-label="公网服务器大厅">
+          <div className="browser-panel">
+            <div className="browser-head">
+              <h2>公网战术服务器大厅</h2>
+              <input
+                value={browserFilter}
+                onChange={(e) => setBrowserFilter(e.target.value)}
+                placeholder="按名称或主机过滤…"
+              />
+              <button type="button" onClick={() => setShowBrowser(false)}>
+                关闭
               </button>
             </div>
-            {BOOKMARKS.map((bm) => (
-              <div key={bm.id} className={`bm-card${bm.active ? ' active' : ''}`}>
-                <div className="bm-top">
-                  <div className="bm-identity">
-                    <div className="bm-icon">
-                      <IcWifi size={16} />
-                    </div>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div className="bm-name-row">
-                        <span className="bm-name">{bm.name}</span>
-                        {bm.active && <span className="bm-pulse" />}
-                      </div>
-                      <div className="bm-host">{bm.host}</div>
-                    </div>
-                  </div>
-                  <span className={`bm-ping${bm.ping > 35 ? ' warn' : ''}`}>{bm.ping}ms</span>
-                </div>
-                <div className="bm-meta">
-                  <div className="left">
-                    <IcCheck size={12} className="t" style={{ color: 'var(--tertiary)' }} />
-                    <span className="t">{bm.note}</span>
-                  </div>
-                  <div className="right">
-                    <span className="n">
-                      {bm.slots}/{bm.max}
+            <div className="browser-list">
+              {browserRows.length === 0 && (
+                <div className="empty">暂无书签或最近连接 — 使用上方直连表单</div>
+              )}
+              {browserRows.map((r) => (
+                <div key={r.id} className="browser-row">
+                  <div className="bi">
+                    <strong>{r.name}</strong>
+                    <span>
+                      {r.host}:{r.port}
+                      {r.gameTag ? ` · ${r.gameTag}` : ''}
+                      {r.note ? ` · ${r.note}` : ''}
                     </span>
-                    <span>在线</span>
                   </div>
-                </div>
-                <div className="bm-actions">
-                  <button type="button" onClick={() => doConnect(bm.host)}>
-                    {bm.active ? '重新连接' : '连接'}
-                  </button>
-                  <button type="button" className="sq" title="书签设置">
-                    <IcShield size={14} />
-                  </button>
-                </div>
-              </div>
-            ))}
-            <div className="relay-health">
-              <div className="relay-row">
-                <span>公共节点中继健康度</span>
-                <span className="t">99.98% 在线</span>
-              </div>
-              <div className="relay-bar" aria-hidden="true">
-                <span className="g" />
-                <span className="c" />
-                <span className="r" />
-              </div>
-              <div className="relay-row">
-                <span>总节点: 2,410</span>
-                <span>丢包扩散: 0.04%</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Directory */}
-          <div className="sb-directory">
-            <div className="sb-filters">
-              <div className="sb-filter-top">
-                <div className="sb-search">
-                  <span className="f-icon">
-                    <IcSearch size={16} />
-                  </span>
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="按名称、战队标签、游戏或服务器 IP 过滤…"
-                    aria-label="搜索服务器"
-                  />
-                  {query && (
-                    <button
-                      type="button"
-                      className="clear"
-                      onClick={() => setQuery('')}
-                      aria-label="清除"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-                <div className="sb-region">
-                  <label>区域:</label>
-                  <select defaultValue={region} aria-label="区域">
-                    <option>EU-西部中部</option>
-                    <option>NA-东部</option>
-                    <option>NA-西部</option>
-                    <option>亚洲</option>
-                  </select>
-                </div>
-              </div>
-              <div className="sb-game-tags">
-                {GAMES.map((g) => (
                   <button
-                    key={g}
                     type="button"
-                    className={`game-tag${game === g ? ' active' : ''}`}
-                    onClick={() => setGame(g)}
+                    className="join"
+                    onClick={() => {
+                      quickFill(r.host, String(r.port))
+                      setShowBrowser(false)
+                    }}
                   >
-                    {g}
+                    填入
                   </button>
-                ))}
-              </div>
-              <div className="sb-filter-bot">
-                <div className="sb-ping-row">
-                  <span>最大延迟:</span>
-                  <input
-                    type="range"
-                    min={10}
-                    max={200}
-                    value={maxPing}
-                    onChange={(e) => setMaxPing(Number(e.target.value))}
-                    aria-label="最大延迟"
-                  />
-                  <span className="val">{maxPing}ms</span>
-                </div>
-                <label className="sb-check">
-                  <input
-                    type="checkbox"
-                    checked={hideFull}
-                    onChange={(e) => setHideFull(e.target.checked)}
-                  />
-                  隐藏已满
-                </label>
-                <label className="sb-check">
-                  <input
-                    type="checkbox"
-                    checked={hideEmpty}
-                    onChange={(e) => setHideEmpty(e.target.checked)}
-                  />
-                  隐藏空服
-                </label>
-              </div>
-            </div>
-
-            <div className="sb-count-row">
-              <span>发现 {filtered.length} 个服务器</span>
-              <span>
-                排序: <span className="sort">延迟（最低）</span>{' '}
-                <button type="button" className="refresh" onClick={() => setQuery('')}>
-                  ↻ 刷新
-                </button>
-              </span>
-            </div>
-
-            <div className="server-list">
-              {filtered.map((s) => (
-                <div key={s.id} className={`server-row${s.full ? ' full' : ''}`}>
-                  <div className="server-badge-num">
-                    <IcGame size={14} />
-                  </div>
-                  <div className="server-info">
-                    <div className="server-info-top">
-                      <span className="server-info-name">{s.name}</span>
-                      <span className="badge cyan">{s.game}</span>
-                      {s.tag && (
-                        <span className={s.full ? 'badge danger' : 'badge muted'}>{s.tag}</span>
-                      )}
-                    </div>
-                    <div className="server-info-meta">
-                      <span>{s.host}</span>
-                      <span>· {s.region.split('&')[0].trim()}</span>
-                      <span className="lock">
-                        <IcShield size={11} /> 安全等级 {s.sec}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="server-net">
-                    <span className={`ping${s.ping > 70 ? ' warn' : ''}`}>
-                      <IcWifi size={12} />
-                      {s.ping}ms
-                    </span>
-                    <span className="loss">{s.loss.toFixed(1)}% 丢包</span>
-                  </div>
-                  <div className="server-slots">
-                    <span className={`n${s.full ? ' full' : ''}`}>
-                      {s.slots}/{s.max}
-                    </span>
-                    <span className="slot-bar">
-                      <i
-                        className={s.full ? 'full' : ''}
-                        style={{ width: `${Math.round((s.slots / s.max) * 100)}%` }}
-                      />
-                    </span>
-                  </div>
                   <button
                     type="button"
-                    className={`star-btn${starred.has(String(s.id)) ? ' on' : ''}`}
-                    aria-label="收藏"
-                    onClick={() =>
-                      setStarred((prev) => {
-                        const next = new Set(prev)
-                        const k = String(s.id)
-                        if (next.has(k)) next.delete(k)
-                        else next.add(k)
-                        return next
+                    className="join primary"
+                    onClick={() => {
+                      quickFill(r.host, String(r.port))
+                      setShowBrowser(false)
+                      setAddressInput(`${r.host}:${r.port}`)
+                      connectFromLogin({
+                        address: `${r.host}:${r.port}`,
+                        nickname: nickLocal.trim() || 'Commander_Kael',
+                        password: passLocal,
                       })
-                    }
+                    }}
                   >
-                    <IcStar size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    className={`join-btn${s.full ? ' full' : ''}`}
-                    disabled={s.full}
-                    onClick={() => doConnect(s.host)}
-                  >
-                    {s.full ? '已满' : '加入 →'}
+                    加入
                   </button>
                 </div>
               ))}
-              {filtered.length === 0 && (
-                <div className="empty">无匹配服务器 — 调整过滤条件或使用上方直连</div>
-              )}
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
+  )
+}
+
+function IcLoginGlyph() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }

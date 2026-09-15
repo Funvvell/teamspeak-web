@@ -1,13 +1,8 @@
 import type { ReactNode } from 'react'
 import {
-  IcBell,
   IcBolt,
   IcBot,
-  IcHeadset,
-  IcMic,
-  IcMusic,
   IcSettings,
-  IcShieldPerson,
   IcUsers,
   IcVolumeUp,
   IcWave,
@@ -21,18 +16,18 @@ export interface AppChromeProps {
   serverName?: string | null
   host?: string
   selfLatency: number | null
-  muted: boolean
-  deafened: boolean
-  soundsOn: boolean
+  muted?: boolean
+  deafened?: boolean
+  soundsOn?: boolean
   musicBotUrl?: string
   nav: NavKey
-  /** full = channels 3-pane; solo = settings/browser/permissions single main */
   layout?: 'full' | 'solo'
   setNav: (n: NavKey) => void
+  onGoLogin?: () => void
   openSettings: (nav: 'audio' | 'account') => void
-  toggleSounds: () => void
-  toggleMute: () => void
-  toggleDeafen: () => void
+  toggleSounds?: () => void
+  toggleMute?: () => void
+  toggleDeafen?: () => void
   children: ReactNode
 }
 
@@ -42,20 +37,14 @@ export function AppChrome({
   serverName,
   host,
   selfLatency,
-  muted,
-  deafened,
-  soundsOn,
-  musicBotUrl,
   nav,
   layout = 'full',
   setNav,
+  onGoLogin,
   openSettings,
-  toggleSounds,
-  toggleMute,
-  toggleDeafen,
   children,
 }: AppChromeProps) {
-  const role = nickname ? '已连接' : '未连接'
+  const role = nickname ? '服务器管理员' : '—'
   const lat = selfLatency != null ? `${selfLatency}ms` : '—'
   return (
     <div className="app" style={{ flexDirection: 'column' }}>
@@ -73,9 +62,15 @@ export function AppChrome({
       >
         {/* Left icon rail */}
         <aside className="nav-rail">
-          <div className="rail-logo" title="TeamSpeak Web">
+          <button
+            type="button"
+            className="rail-logo"
+            title="返回登录页"
+            aria-label="返回登录页"
+            onClick={onGoLogin}
+          >
             <IcWave size={20} />
-          </div>
+          </button>
           <nav className="rail-nav" aria-label="主导航">
             <button
               type="button"
@@ -108,11 +103,12 @@ export function AppChrome({
             <button
               type="button"
               className={`rail-button${nav === 'permissions' ? ' active' : ''}`}
-              title="权限与管理（演示预览）"
-              aria-label="权限与管理（演示预览）"
+              title="权限与管理"
+              aria-label="权限与管理"
               onClick={() => setNav('permissions')}
             >
               <IcUsers size={20} />
+              <span className="rail-dot alert" />
             </button>
           </nav>
           <div className="rail-bottom">
@@ -167,44 +163,6 @@ export function AppChrome({
             <span>Opus</span>
             <strong>48kHz / 128kbps</strong>
           </div>
-          <nav className="tac-nav" aria-label="主页面导航">
-            <button
-              type="button"
-              className={nav === 'channels' ? 'active' : ''}
-              onClick={() => setNav('channels')}
-            >
-              频道与
-              <br />信息
-            </button>
-            <button
-              type="button"
-              className={nav === 'audio' ? 'active' : ''}
-              onClick={() => {
-                setNav('audio')
-                openSettings('audio')
-              }}
-            >
-              音频与
-              <br />耳语
-            </button>
-            <button
-              type="button"
-              className={nav === 'browser' ? 'active' : ''}
-              onClick={() => setNav('browser')}
-            >
-              浏览器与
-              <br />书签
-            </button>
-            <button
-              type="button"
-              className={nav === 'permissions' ? 'active' : ''}
-              onClick={() => setNav('permissions')}
-              title="权限管理（演示预览）"
-            >
-              权限
-              <br />演示
-            </button>
-          </nav>
           <div className="tac-telemetry" aria-label="网络遥测">
             <span>
               延迟 <span className="t-val">{lat}</span>
@@ -219,43 +177,6 @@ export function AppChrome({
             </span>
           </div>
           <div className="tac-actions">
-            <button
-              type="button"
-              className={`icon-btn${muted ? ' off' : ''}`}
-              title={muted ? '取消静音' : '静音麦克风'}
-              aria-pressed={muted}
-              onClick={toggleMute}
-            >
-              {muted ? <IcMic size={16} /> : <IcMic size={16} />}
-            </button>
-            <button
-              type="button"
-              className={`icon-btn${deafened ? ' off' : ''}`}
-              title={deafened ? '取消闭听' : '闭听'}
-              aria-pressed={deafened}
-              onClick={toggleDeafen}
-            >
-              <IcHeadset size={16} />
-            </button>
-            <button
-              type="button"
-              className={`icon-btn${soundsOn ? '' : ' off'}`}
-              title={soundsOn ? '通知音效开' : '通知音效关'}
-              aria-pressed={soundsOn}
-              onClick={toggleSounds}
-            >
-              <IcBell size={16} />
-            </button>
-            {!!musicBotUrl && (
-              <button
-                type="button"
-                className="icon-btn"
-                title="点歌机器人"
-                onClick={() => window.open(musicBotUrl, '_blank', 'noopener,noreferrer')}
-              >
-                <IcMusic size={16} />
-              </button>
-            )}
             <div className="tac-user">
               <span className="u-name">{nickname || '未命名'}</span>
               <span className="u-role">{role}</span>
@@ -273,6 +194,3 @@ export function AppChrome({
 function IcGamepadFallback() {
   return <IcBolt size={20} />
 }
-
-/** Simple gamepad-ish icon via users fallback kept intentional */
-export { IcShieldPerson }
