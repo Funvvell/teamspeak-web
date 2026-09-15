@@ -40,7 +40,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@shared/components/ui/dropdown-menu'
-import { ChevronRight, Copy, MessageSquare, Zap } from 'lucide-react'
+import { IcChat, IcChevron, IcCopy, IcPoke } from './components/TacIcons'
 import {
   Dialog,
   DialogContent,
@@ -962,7 +962,7 @@ export default function App() {
                 })
               }}
             >
-              <MessageSquare size={14} /> 私聊
+              <IcChat size={14} /> 私聊
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={() => {
@@ -973,11 +973,11 @@ export default function App() {
                 })
               }}
             >
-              <Zap size={14} /> Poke
+              <IcPoke size={14} /> Poke
             </DropdownMenuItem>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
-                耳语 <ChevronRight size={14} className="ml-auto" />
+                耳语 <IcChevron size={14} className="ml-auto" />
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="z-[150]">
                 <DropdownMenuItem
@@ -1019,7 +1019,7 @@ export default function App() {
                 void navigator.clipboard.writeText(menu.client.nickname)
               }}
             >
-              <Copy size={14} /> 复制昵称
+              <IcCopy size={14} /> 复制昵称
             </DropdownMenuItem>
             <div className="border-t-3 border-brutal px-3 py-2.5">
               <div className="mb-1.5 text-xs font-bold">

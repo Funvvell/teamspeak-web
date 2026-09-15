@@ -23,3 +23,5 @@ web-ui.log
 gateway-ui.log
 mock-run.log
 *.err
+test-results/
+playwright-report/

@@ -8,7 +8,7 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -31,3 +31,12 @@ jobs:
 
       - name: Voice frame smoke
         run: npm run smoke:voice
+
+      - name: Build SPA
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E smoke (mock gateway)
+        run: npm run test:e2e

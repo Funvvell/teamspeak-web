@@ -6,10 +6,12 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleUser,
+  Copy,
   Crown,
   Gamepad2,
   Headphones,
   HeadphoneOff,
+  MessageSquare,
   Mic,
   MicOff,
   Music2,
@@ -64,6 +66,9 @@ export const IcBot = (p: IconProps) => <Bot {...base(p.size)} className={p.class
 export const IcCheck = (p: IconProps) => <CheckCircle2 {...base(p.size)} className={p.className} style={p.style} />
 export const IcChevron = (p: IconProps) => <ChevronRight {...base(p.size)} className={p.className} style={p.style} />
 export const IcSignal = (p: IconProps) => <Signal {...base(p.size)} className={p.className} style={p.style} />
+export const IcCopy = (p: IconProps) => <Copy {...base(p.size)} className={p.className} style={p.style} />
+export const IcChat = (p: IconProps) => <MessageSquare {...base(p.size)} className={p.className} style={p.style} />
+export const IcPoke = (p: IconProps) => <Zap {...base(p.size)} className={p.className} style={p.style} />
 
 /** Decorative waveform bars for talking state */
 export function WaveBars({ active, level = 0.6 }: { active?: boolean; level?: number }) {

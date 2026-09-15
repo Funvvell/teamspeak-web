@@ -16,6 +16,7 @@
     "smoke:ts3": "node --import tsx scripts/smoke-ts3-connect.ts",
     "smoke:voice": "node --import tsx scripts/smoke-voice-frame.mjs",
     "smoke:guard": "npm run smoke:voice && npm run test:unit",
+    "test:e2e": "playwright test",
     "lint": "eslint .",
     "test:unit": "vitest run",
     "test:unit:coverage": "vitest run --coverage",
@@ -51,6 +52,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^22.20.2",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
