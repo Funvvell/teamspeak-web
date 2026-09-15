@@ -1,11 +1,18 @@
 import type { WebSocket } from 'ws'
 import net from 'node:net'
 import type {
+  ChannelNode,
   ClientToGateway,
   ConnectionState,
   GatewayToClient,
+  PermChange,
 } from '../../shared/types'
 import type { AdapterFactory } from './protocol/adapter'
+import {
+  createServerQueryFromEnv,
+  type ServerQueryPort,
+} from './serverquery'
+import { createCatalogStore, type CatalogStore } from './catalog'
 
 const OPCODE_AUDIO = 1
 const PROTOCOL = (process.env.PROTOCOL || 'ts3').toLowerCase()
@@ -105,11 +112,17 @@ export class Session {
   private connecting = false
   private connectGen = 0
   private lastConnectAt = 0
+  private sq: ServerQueryPort | null = null
+  private sqConnected = false
+  private catalog: CatalogStore
+  private lastChannels: ChannelNode[] = []
 
   constructor(
     private readonly ws: WebSocket,
     private readonly createAdapter: AdapterFactory,
-  ) {}
+  ) {
+    this.catalog = createCatalogStore()
+  }
 
   private send(msg: GatewayToClient) {
     if (this.ws.readyState === this.ws.OPEN) {
@@ -214,7 +227,10 @@ export class Session {
           await this.teardownAdapter()
           console.log(`[session] connect ${host}:${port} as ${nickname}`)
           this.status('connecting', `Connecting to ${host}:${port}`)
-          this.adapter = this.createAdapter((m) => this.send(m))
+          this.adapter = this.createAdapter((m) => {
+            if (m.type === 'channel_tree') this.lastChannels = m.channels
+            this.send(m)
+          })
           if (this.adapter.onVoice) {
             this.adapter.onVoice((frame) => {
               if (this.ws.readyState !== this.ws.OPEN) return
@@ -238,6 +254,15 @@ export class Session {
           console.log(
             `[session] connected ${host}:${port} name=${info.name} selfId=${info.selfId}`,
           )
+          try {
+            this.catalog.pushRecent({
+              host,
+              port,
+              nickname,
+            })
+          } catch {
+            /* catalog optional */
+          }
           this.send({
             type: 'server_info',
             name: info.name,
@@ -251,6 +276,8 @@ export class Session {
             nickname,
             ts: Date.now(),
           })
+          // fire-and-forget catalog for tactical browser
+          this.send({ type: 'catalog', catalog: this.catalog.list() })
         } finally {
           if (gen === this.connectGen) this.connecting = false
         }
@@ -307,6 +334,194 @@ export class Session {
         })
         return
       }
+      case 'serverquery_connect': {
+        const host = asString(msg.host, 253)
+        const queryPort = asPort(msg.queryPort || Number(process.env.SQ_PORT || 10011))
+        const username = asString(msg.username, 64)
+        const password = asString(msg.password, 256)
+        const serverId = Number(msg.serverId ?? Number(process.env.SQ_SERVER_ID || 0))
+        if (PROTOCOL !== 'mock') {
+          assertHostAllowed(host)
+        }
+        this.sq ??= createServerQueryFromEnv((m) => console.log(m))
+        try {
+          await this.sq.disconnect()
+        } catch {
+          /* ignore */
+        }
+        try {
+          const info = await this.sq.connect({
+            host,
+            queryPort,
+            username,
+            password,
+            serverId,
+          })
+          this.sqConnected = true
+          this.send({
+            type: 'serverquery_status',
+            connected: true,
+            serverVersion: info.serverVersion,
+          })
+        } catch (err) {
+          this.sqConnected = false
+          const message = err instanceof Error ? err.message : String(err)
+          this.send({
+            type: 'serverquery_status',
+            connected: false,
+            error: message,
+          })
+        }
+        return
+      }
+      case 'serverquery_disconnect': {
+        await this.sq?.disconnect()
+        this.sqConnected = false
+        this.send({ type: 'serverquery_status', connected: false })
+        return
+      }
+      case 'permission_snapshot': {
+        if (PROTOCOL === 'mock') {
+          this.sq ??= createServerQueryFromEnv()
+          if (!this.sq.isConnected()) {
+            await this.sq.connect({
+              host: 'mock',
+              queryPort: 10011,
+              username: 'mock',
+              password: 'mock',
+            })
+            this.sqConnected = true
+            this.send({
+              type: 'serverquery_status',
+              connected: true,
+              serverVersion: '3.13.7-mock',
+            })
+          }
+        }
+        if (!this.sq || !this.sq.isConnected()) {
+          // auto-connect SQ from env when possible
+          if (process.env.SQ_USERNAME && process.env.SQ_PASSWORD && PROTOCOL !== 'mock') {
+            this.sq ??= createServerQueryFromEnv()
+            try {
+              const host = process.env.SQ_HOST || '127.0.0.1'
+              await this.sq.connect({
+                host,
+                queryPort: Number(process.env.SQ_PORT || 10011),
+                username: process.env.SQ_USERNAME,
+                password: process.env.SQ_PASSWORD,
+                serverId: Number(process.env.SQ_SERVER_ID || 0),
+              })
+              this.sqConnected = true
+              this.send({
+                type: 'serverquery_status',
+                connected: true,
+              })
+            } catch (err) {
+              this.send({
+                type: 'serverquery_status',
+                connected: false,
+                error: err instanceof Error ? err.message : String(err),
+              })
+            }
+          }
+        }
+        if (!this.sq?.isConnected()) {
+          this.send({
+            type: 'error',
+            code: 'sq_disconnected',
+            message: 'ServerQuery 未连接（需配置 SQ_* 或使用 mock）',
+          })
+          return
+        }
+        const snapshot = await this.sq.getSnapshot(this.lastChannels)
+        this.send({ type: 'permission_snapshot', snapshot })
+        return
+      }
+      case 'permission_apply': {
+        if (!this.sq?.isConnected()) {
+          this.send({
+            type: 'error',
+            code: 'sq_disconnected',
+            message: 'ServerQuery 未连接',
+          })
+          return
+        }
+        const changes = Array.isArray(msg.changes) ? msg.changes : []
+        if (changes.length > 100) {
+          this.send({
+            type: 'error',
+            code: 'bad_request',
+            message: '变更项过多',
+          })
+          return
+        }
+        const applied = await this.sq.applyTierChanges(
+          asString(msg.tierId, 32),
+          changes as PermChange[],
+        )
+        this.send({
+          type: 'permission_apply_ok',
+          tierId: msg.tierId,
+          applied,
+        })
+        const snapshot = await this.sq.getSnapshot(this.lastChannels)
+        this.send({ type: 'permission_snapshot', snapshot })
+        return
+      }
+      case 'channel_update': {
+        if (!this.sq?.isConnected()) {
+          this.send({
+            type: 'error',
+            code: 'sq_disconnected',
+            message: 'ServerQuery 未连接',
+          })
+          return
+        }
+        const channelId = Number(msg.channelId)
+        if (!Number.isInteger(channelId) || channelId < 0) {
+          this.send({
+            type: 'error',
+            code: 'bad_request',
+            message: 'Invalid channelId',
+          })
+          return
+        }
+        await this.sq.updateChannel(channelId, msg.patch ?? {})
+        const snapshot = await this.sq.getSnapshot(this.lastChannels)
+        this.send({ type: 'permission_snapshot', snapshot })
+        return
+      }
+      case 'catalog_list': {
+        this.send({ type: 'catalog', catalog: this.catalog.list() })
+        return
+      }
+      case 'catalog_add_bookmark': {
+        const name = asString(msg.name, 80)
+        const host = asString(msg.host, 253)
+        const port = asPort(msg.port)
+        const nickname = msg.nickname ? asString(msg.nickname, 64) : undefined
+        this.catalog.addBookmark({ name, host, port, nickname })
+        this.send({ type: 'catalog', catalog: this.catalog.list() })
+        return
+      }
+      case 'catalog_remove_bookmark': {
+        this.catalog.removeBookmark(asString(msg.id, 64))
+        this.send({ type: 'catalog', catalog: this.catalog.list() })
+        return
+      }
+      case 'whisper_sync': {
+        if (!this.adapter) throw new Error('Not connected')
+        this.adapter.clearWhisperTargets?.()
+        const clients = Array.isArray(msg.clients) ? msg.clients.slice(0, 64) : []
+        const channels = Array.isArray(msg.channels) ? msg.channels.slice(0, 64) : []
+        for (const id of clients) {
+          this.adapter.addWhisperTarget?.({ kind: 'client', id: Number(id) })
+        }
+        for (const id of channels) {
+          this.adapter.addWhisperTarget?.({ kind: 'channel', id: Number(id) })
+        }
+        return
+      }
       default: {
         this.send({
           type: 'error',
@@ -322,11 +537,19 @@ export class Session {
       await this.adapter.disconnect()
       this.adapter = null
     }
+    this.lastChannels = []
   }
 
   async dispose() {
     this.connectGen += 1
     this.connecting = false
     await this.teardownAdapter()
+    try {
+      await this.sq?.disconnect()
+    } catch {
+      /* ignore */
+    }
+    this.sqConnected = false
+    this.sq = null
   }
 }

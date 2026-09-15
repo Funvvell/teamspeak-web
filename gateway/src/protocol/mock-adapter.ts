@@ -103,6 +103,10 @@ export function createMockAdapter(
         isMuted: false,
         country: 'CN',
         latency: 30 + ((id * 13) % 70),
+        packetLoss: Number((((id * 17) % 10) / 100).toFixed(2)),
+        positionDeg: (id * 47) % 360,
+        isPrioritySpeaker: id === 2 || id === 5,
+        groupIds: id === 1 ? [100] : id <= 8 ? [402] : [201],
         ...extra,
       })
       clients = [

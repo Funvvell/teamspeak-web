@@ -2,26 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Apple system tokens for Tailwind utilities */
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 
   --brutal-border-width: 1px;
-  --brutal-border-color: rgba(60, 60, 67, 0.16);
-  --brutal-shadow-color: rgba(0, 0, 0, 0.06);
+  --brutal-border-color: rgba(186, 201, 204, 0.16);
+  --brutal-shadow-color: rgba(0, 0, 0, 0.35);
   --brutal-shadow-offset-x: 0px;
   --brutal-shadow-offset-y: 1px;
   --brutal-pressed-offset: 0px;
-  --brutal-radius: 10px;
-  --brutal-bg: #ffffff;
-  --brutal-fg: #1d1d1f;
-  --brutal-primary: #0071e3;
-  --brutal-secondary: #34c759;
-  --brutal-accent: #ff9500;
-  --brutal-destructive: #ff3b30;
-  --brutal-success: #34c759;
-  --brutal-muted: #f5f5f7;
-  --brutal-ring: #0071e3;
+  --brutal-radius: 4px;
+  --brutal-bg: #1e1f26;
+  --brutal-fg: #e2e2eb;
+  --brutal-primary: #00e5ff;
+  --brutal-secondary: #5be9ad;
+  --brutal-accent: #b4c5ff;
+  --brutal-destructive: #ef4444;
+  --brutal-success: #10b981;
+  --brutal-muted: #282a30;
+  --brutal-ring: #00e5ff;
 }
 
 .border-3 {
@@ -29,13 +28,13 @@
 }
 
 .shadow-brutal {
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  box-shadow: none;
 }
 
 .shadow-brutal-sm {
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: none;
 }
 
 .shadow-brutal-lg {
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+  box-shadow: none;
 }

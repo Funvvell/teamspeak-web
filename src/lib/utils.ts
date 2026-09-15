@@ -87,22 +87,80 @@ export function loadRecent(): RecentServer[] {
 }
 
 export function saveRecent(list: RecentServer[]) {
-  localStorage.setItem(LS_RECENT, JSON.stringify(list.slice(0, 5)))
+  const seen = new Set<string>()
+  const cleaned = list
+    .map((r) => {
+      const { host, port } = parseHostPort(`${r.host}:${r.port}`)
+      return { ...r, host, port, label: host }
+    })
+    .filter((r) => {
+      if (!r.host) return false
+      const k = `${r.host}:${r.port}`
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
+    .slice(0, 3)
+  localStorage.setItem(LS_RECENT, JSON.stringify(cleaned))
 }
 
+/**
+ * Split host:port. Peels repeated trailing `:port` on hostnames so reconnects
+ * cannot stack ports. Bare IPv6 (`::1`) only strips one trailing port segment.
+ */
 export function parseHostPort(v: string): { host: string; port: string } {
-  const s = v.trim()
+  let s = v.trim()
   if (!s) return { host: '', port: String(DEFAULT_VOICE_PORT) }
-  if (s.includes(':')) {
-    const i = s.lastIndexOf(':')
-    const h = s.slice(0, i).trim()
-    const p = Number(s.slice(i + 1))
-    if (h && Number.isFinite(p) && p > 0 && p < 65536) {
-      return { host: h, port: String(p) }
+
+  if (s.startsWith('[')) {
+    const close = s.indexOf(']')
+    if (close > 0) {
+      const host = s.slice(1, close)
+      const rest = s.slice(close + 1)
+      const m = rest.match(/^:(\d+)$/)
+      return { host, port: m ? m[1] : String(DEFAULT_VOICE_PORT) }
+    }
+  }
+
+  // Bare IPv6 (contains ':' segments, no dotted quad): peel at most one :port
+  if (s.includes(':') && !s.includes('.') && (s.match(/:/g) || []).length >= 2) {
+    const idx = s.lastIndexOf(':')
+    const n = Number(s.slice(idx + 1))
+    if (idx > 0 && Number.isInteger(n) && n > 0 && n < 65536) {
+      return { host: s.slice(0, idx), port: String(n) }
     }
     return { host: s, port: String(DEFAULT_VOICE_PORT) }
   }
-  return { host: s, port: String(DEFAULT_VOICE_PORT) }
+
+  let port = String(DEFAULT_VOICE_PORT)
+  for (let i = 0; i < 8; i++) {
+    const idx = s.lastIndexOf(':')
+    if (idx <= 0) break
+    const n = Number(s.slice(idx + 1))
+    if (Number.isInteger(n) && n > 0 && n < 65536) {
+      port = String(n)
+      s = s.slice(0, idx).trim()
+    } else {
+      break
+    }
+  }
+  return { host: s, port }
+}
+
+/** Normalize a host string used for identity (strip ports, lowercase). */
+export function normalizeHost(host: string): string {
+  let s = host.trim().toLowerCase()
+  for (let i = 0; i < 8; i++) {
+    const idx = s.lastIndexOf(':')
+    if (idx <= 0) break
+    const n = Number(s.slice(idx + 1))
+    if (Number.isInteger(n) && n > 0 && n < 65536) {
+      s = s.slice(0, idx).trim()
+    } else {
+      break
+    }
+  }
+  return s
 }
 
 /** System notification for pm/poke when the page is unfocused */

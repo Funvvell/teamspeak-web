@@ -243,6 +243,13 @@ server {
 | `TS_CONNECT_TIMEOUT_MS` | `45000` | TS3 握手超时（毫秒） |
 | `TS_WELCOME_WAIT_MS` | `1500` | 连接后等待欢迎消息的缓冲（毫秒） |
 | `MUSIC_BOT_URL` | 空 | 音乐机器人（TSMusicBot）Web 地址，如 `http://127.0.0.1:3000`；非空时主界面顶栏显示 🎵 按钮，点击在新标签页打开该地址 |
+| `SQ_HOST` | 空 = 与连接主机相同 | ServerQuery 管理主机（权限页 / 频道检查器） |
+| `SQ_PORT` | `10011` | ServerQuery 管理端口 |
+| `SQ_USERNAME` | 空 | ServerQuery 管理员账号；与 `SQ_PASSWORD` 同时为空时真权限 API 不可用（mock 仍可用） |
+| `SQ_PASSWORD` | 空 | ServerQuery 密码；**仅网关持有，不下发浏览器** |
+| `SQ_SERVER_ID` | `0` | 虚拟服务器 id |
+| `PERMISSIONS_ENABLED` | `1` | 设为 `0` 时禁用真实 ServerQuery |
+| `CATALOG_PATH` | `gateway/data/catalog.json` | 服务器书签 JSON 路径 |
 
 Windows PowerShell 设置方式：
 

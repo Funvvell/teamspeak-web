@@ -261,6 +261,15 @@ export function createTs3Adapter(
           const ping = parseLatency(cl as Record<string, string | undefined>)
           if (ping != null) m.latency = ping
           else m.latency = 20 + ((m.id * 17) % 90)
+          // packet loss: client_packetloss is 0–100 percent when present
+          const lossRaw = Number(cl.client_packetloss)
+          if (Number.isFinite(lossRaw)) {
+            m.packetLoss = Math.max(0, Math.min(1, lossRaw / 100))
+          }
+          if (parseBool(cl.client_is_priority_speaker)) {
+            m.isPrioritySpeaker = true
+          }
+          if (parseBool(cl.client_flag_talking)) m.isTalking = true
           return m
         })
       if (mapped.length > 0) {

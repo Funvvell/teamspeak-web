@@ -1,10 +1,16 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#ffffff" />
-    <title>TeamSpeak Web</title>
+    <meta name="theme-color" content="#111319" />
+    <title>TeamSpeak Web · Tactical</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <div id="root"></div>
@@ -15,11 +21,11 @@
           var root = document.getElementById('root')
           if (root && root.childElementCount === 0 && !root.textContent) {
             root.innerHTML =
-              '<div style="padding:24px;color:#1d1d1f;background:#f5f5f7;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,&quot;SF Pro Text&quot;,&quot;SF Pro Display&quot;,&quot;Helvetica Neue&quot;,&quot;PingFang SC&quot;,system-ui,sans-serif">' +
-              '<h1 style="font-size:18px;margin:0 0 12px">TeamSpeak Web 未启动</h1>' +
-              '<p style="color:#7a7a7f;font-size:14px;line-height:1.6">这是 Vite 入口页，不能直接以 file:// 打开。请在项目目录执行：</p>' +
-              '<pre style="background:#ffffff;border:1px solid rgba(15,20,30,0.08);padding:12px;border-radius:8px;color:#2e9e5b">npm run build\nnpm start</pre>' +
-              '<p style="color:#7a7a7f;font-size:14px">然后打开 <a href="http://127.0.0.1:8080" style="color:#0066cc">http://127.0.0.1:8080</a></p>' +
+              '<div style="padding:24px;color:#e2e2eb;background:#111319;min-height:100vh;font-family:Inter,&quot;Source Han Sans SC&quot;,&quot;Noto Sans SC&quot;,system-ui,sans-serif">' +
+              '<h1 style="font-size:18px;margin:0 0 12px;font-family:Inter,&quot;Source Han Sans SC&quot;,&quot;Noto Sans SC&quot;,sans-serif">TeamSpeak Web 未启动</h1>' +
+              '<p style="color:#bac9cc;font-size:14px;line-height:1.6">这是 Vite 入口页，不能直接以 file:// 打开。请在项目目录执行：</p>' +
+              '<pre style="background:#0c0e14;border:1px solid #3b494c;padding:12px;border-radius:4px;color:#5be9ad">npm run build\nnpm start</pre>' +
+              '<p style="color:#bac9cc;font-size:14px">然后打开 <a href="http://127.0.0.1:8080" style="color:#00e5ff">http://127.0.0.1:8080</a></p>' +
               '</div>'
           }
         }, 1200)

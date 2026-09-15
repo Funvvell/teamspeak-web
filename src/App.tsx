@@ -54,8 +54,11 @@ import {
 import { Button } from '@shared/components/ui/button'
 import { Slider as BrutalSlider } from '@shared/components/ui/slider'
 import { LoginView } from './views/LoginView'
+import { ServerBrowserView } from './views/ServerBrowserView'
 import { SettingsView } from './views/SettingsView'
+import { PermissionsView } from './views/PermissionsView'
 import { MainShell, type StatusKind } from './views/MainShell'
+import { AppChrome, type NavKey } from './components/AppChrome'
 import {
   emptyTab,
   type AppView,
@@ -64,6 +67,12 @@ import {
   type SettingsNav,
   type ToastKind,
 } from './views/types'
+import type {
+  CatalogPayload,
+  PermChange,
+  PermissionSnapshot,
+  ChannelPatch,
+} from '../shared/types'
 
 // 模块级小组件：避免在 App 内部定义导致每次渲染重挂载（输入框失焦）
 export default function App() {
@@ -86,6 +95,12 @@ export default function App() {
   })
   const [activeId, setActiveId] = useState(() => '')
   const [view, setView] = useState<AppView>('login')
+  const [nav, setNav] = useState<NavKey>('browser')
+  const [catalog, setCatalog] = useState<CatalogPayload>({ bookmarks: [], recent: [] })
+  const [permSnapshot, setPermSnapshot] = useState<PermissionSnapshot | null>(null)
+  const [sqStatus, setSqStatus] = useState<{ connected: boolean; error?: string; serverVersion?: string }>({
+    connected: false,
+  })
   const [musicBotUrl, setMusicBotUrl] = useState('')
   const [settingsNav, setSettingsNav] = useState<SettingsNav>('audio')
   const [draft, setDraft] = useState('')
@@ -189,6 +204,15 @@ export default function App() {
   useEffect(() => {
     if (!activeId && tabs[0]) setActiveId(tabs[0].id)
   }, [activeId, tabs])
+
+  // Load catalog when gateway client is ready
+  useEffect(() => {
+    const t = tabs.find((x) => x.id === activeId)
+    if (t?.client) {
+      t.client.send({ type: 'catalog_list' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.client, active?.connState])
 
   // Load per-server volumes and re-apply to playback so UI matches audio
   useEffect(() => {
@@ -311,6 +335,7 @@ export default function App() {
               pushToast('success', '已连接')
               setSelectedChannelId(null)
               setView('main')
+              setNav('channels')
             }
           }
           if (msg.state === 'disconnected' || msg.state === 'error') {
@@ -409,6 +434,22 @@ export default function App() {
             ),
           )
           break
+        case 'catalog':
+          setCatalog(msg.catalog)
+          break
+        case 'serverquery_status':
+          setSqStatus({
+            connected: msg.connected,
+            error: msg.error,
+            serverVersion: msg.serverVersion,
+          })
+          break
+        case 'permission_snapshot':
+          setPermSnapshot(msg.snapshot)
+          break
+        case 'permission_apply_ok':
+          pushToast('success', `已应用 ${msg.applied} 项权限变更`)
+          break
         case 'error':
           patchTab(tabId, { lastError: `${msg.code}: ${msg.message}` })
           if (isActive()) pushToast('err', `${msg.code}: ${msg.message}`)
@@ -435,9 +476,17 @@ export default function App() {
     overrides?: { host?: string; port?: string; nickname?: string },
   ) => {
     const tab = tabsRef.current.find((t) => t.id === id)
-    const host = (overrides?.host ?? tab?.host ?? '').trim()
+    const rawHost = (overrides?.host ?? tab?.host ?? '').trim()
     const nick = (overrides?.nickname ?? tab?.nickname ?? '').trim()
-    const port = overrides?.port ?? tab?.port ?? String(DEFAULT_VOICE_PORT)
+    const portOverride = String(
+      overrides?.port ?? tab?.port ?? DEFAULT_VOICE_PORT,
+    )
+    const peeled = parseHostPort(rawHost)
+    const host = peeled.host || rawHost
+    const port =
+      String(Number(portOverride) || 0) !== '0' && portOverride
+        ? portOverride
+        : peeled.port
     if (!tab || !host || !nick) {
       if (!opts?.auto) {
         setFieldErrors({
@@ -472,12 +521,14 @@ export default function App() {
       messages: [],
       whisperClients: [],
       whisperChannels: [],
+      host,
+      port,
     })
     if (rememberServer) {
       localStorage.setItem(
         LS_FAV,
         JSON.stringify({
-          host: host,
+          host,
           port,
           nickname: nick,
         }),
@@ -487,7 +538,7 @@ export default function App() {
       const next = [
         { host, port, label: host, ts: Date.now() },
         ...prev.filter((r) => !(r.host === host && r.port === port)),
-      ].slice(0, 5)
+      ].slice(0, 3)
       saveRecent(next)
       return next
     })
@@ -715,7 +766,6 @@ export default function App() {
   }
 
   function toggleMute() {
-    if (deafened) return
     const n = !muted
     setMuted(n)
     mic.setMuted(n)
@@ -725,14 +775,11 @@ export default function App() {
     const next = !deafened
     setDeafened(next)
     if (next) {
+      // 闭听只关输出，不强制静音麦克风
       deafenPrevVol.current = mic.state.outputVolume
-      setMuted(true)
-      mic.setMuted(true)
       mic.setOutputVolume(0)
     } else {
-      setMuted(false)
-      mic.setMuted(false)
-      mic.setOutputVolume(deafenPrevVol.current)
+      mic.setOutputVolume(deafenPrevVol.current || 1)
     }
   }
 
@@ -838,7 +885,7 @@ export default function App() {
   function statusFor(c: ClientInfo): { text: string; kind: StatusKind } {
     const isSelf = c.id === active?.selfId
     if (isSelf) {
-      if (deafened) return { text: '已静音', kind: 'muted' }
+      if (deafened) return { text: '已闭听', kind: 'listen' }
       if (muted) return { text: '已静音', kind: 'muted' }
       if (!mic.state.micOn) return { text: '麦克风未开启', kind: 'idle' }
       if (uplink) return { text: '正在说话', kind: 'talking' }
@@ -887,10 +934,14 @@ export default function App() {
 
   // ---------- 登录页操作 ----------
 
-  const connectFromLogin = () => {
+  const connectFromLogin = (overrides?: { address?: string; nickname?: string; password?: string }) => {
     if (!active) return
-    const { host, port } = parseHostPort(addressInput)
-    const nick = active.nickname.trim()
+    const addr = overrides?.address ?? addressInput
+    const nick = (overrides?.nickname ?? active.nickname).trim()
+    const { host, port } = parseHostPort(addr)
+    if (overrides?.password !== undefined) {
+      patchTab(active.id, { password: overrides.password })
+    }
     if (!host || !nick) {
       setFieldErrors({
         host: !host ? '请填写服务器地址' : undefined,
@@ -1021,9 +1072,10 @@ export default function App() {
     })
   }
 
-  const openSettings = (nav: SettingsNav) => {
-    setSettingsNav(nav)
+  const openSettings = (navItem: SettingsNav) => {
+    setSettingsNav(navItem)
     setView('settings')
+    setNav('audio')
   }
 
   const dismissHttpsBar = () => {
@@ -1044,10 +1096,133 @@ export default function App() {
     setGatewayToken(v)
   }
 
+  const layout: 'full' | 'solo' =
+    view === 'main' && nav === 'channels' ? 'full' : 'solo'
+  const chromeConnected = connected
+  const activeNickname = active?.nickname || ''
+  const activeServerName = active?.serverName
+  const activeHost = active?.host || ''
+  const activeLatency = selfLatency
+
+  const handleNav = (n: NavKey) => {
+    setNav(n)
+    if (n === 'channels') {
+      if (chromeConnected) setView('main')
+      else setView('login')
+    } else if (n === 'audio') {
+      setView('settings')
+      setSettingsNav('audio')
+    } else if (n === 'browser') {
+      setView('browser')
+      active?.client?.send({ type: 'catalog_list' })
+      void fetch('/api/catalog')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((cat) => {
+          if (cat?.bookmarks) setCatalog(cat)
+        })
+        .catch(() => {})
+    } else if (n === 'permissions') {
+      setView('permissions')
+      active?.client?.send({ type: 'permission_snapshot' })
+      active?.client?.send({ type: 'catalog_list' })
+    }
+  }
+
+  const requestPermissionSnapshot = () => {
+    active?.client?.send({ type: 'permission_snapshot' })
+  }
+
+  const applyPermissionChanges = (tierId: string, changes: PermChange[]) => {
+    active?.client?.send({ type: 'permission_apply', tierId, changes })
+  }
+
+  const updateChannel = (channelId: number, patch: ChannelPatch) => {
+    active?.client?.send({ type: 'channel_update', channelId, patch })
+  }
+
+  const addBookmark = (name: string, host: string, port: number, nickname?: string) => {
+    active?.client?.send({ type: 'catalog_add_bookmark', name, host, port, nickname })
+  }
+
+  const removeBookmark = (id: string) => {
+    active?.client?.send({ type: 'catalog_remove_bookmark', id })
+  }
+
+  const syncWhisper = (clients: number[], channels: number[]) => {
+    active?.client?.send({ type: 'whisper_sync', clients, channels })
+  }
+
   return (
-    <div className="app">
-      <div className="noise-overlay" aria-hidden="true" />
-      {view === 'settings' ? (
+    <>
+    <AppChrome
+      connected={chromeConnected}
+      nickname={activeNickname}
+      serverName={activeServerName}
+      host={activeHost}
+      selfLatency={activeLatency}
+      muted={muted}
+      deafened={deafened}
+      soundsOn={soundsOn}
+      musicBotUrl={musicBotUrl}
+      nav={nav}
+      layout={layout}
+      setNav={handleNav}
+      onGoLogin={() => {
+        setNav('browser')
+        setView('login')
+      }}
+      openSettings={openSettings}
+      toggleSounds={toggleSounds}
+      toggleMute={toggleMute}
+      toggleDeafen={toggleDeafen}
+    >
+      {view === 'permissions' ? (
+        <PermissionsView
+          snapshot={permSnapshot}
+          sqStatus={sqStatus}
+          onRequestSnapshot={requestPermissionSnapshot}
+          onApply={applyPermissionChanges}
+          onUpdateChannel={updateChannel}
+          onConnectSq={(host, queryPort, username, password) =>
+            active?.client?.send({
+              type: 'serverquery_connect',
+              host,
+              queryPort,
+              username,
+              password,
+            })
+          }
+          onDisconnectSq={() => active?.client?.send({ type: 'serverquery_disconnect' })}
+          whisperClients={active?.whisperClients ?? []}
+          whisperChannels={active?.whisperChannels ?? []}
+          onSyncWhisper={syncWhisper}
+        />
+      ) : view === 'browser' ? (
+        <ServerBrowserView
+          catalog={catalog}
+          connected={chromeConnected}
+          currentHost={active?.host}
+          currentPort={active?.port}
+          onRefresh={() => active?.client?.send({ type: 'catalog_list' })}
+          onJoin={(host, port) => {
+            setAddressInput(`${host}:${port}`)
+            if (!active) return
+            patchTab(active.id, { host, port: String(port) })
+            if (chromeConnected) {
+              disconnectTab(active.id)
+            }
+            // reconnect after disconnect settles
+            setTimeout(() => {
+              connectFromLogin({
+                address: `${host}:${port}`,
+                nickname: active?.nickname || 'Commander_Kael',
+              })
+            }, 350)
+          }}
+          onAddBookmark={addBookmark}
+          onRemoveBookmark={removeBookmark}
+        />
+      ) : view === 'settings' ? (
         <SettingsView
           nickname={active?.nickname || ''}
           setNickname={setNickname}
@@ -1078,8 +1253,14 @@ export default function App() {
           onGatewayTokenChange={onGatewayTokenChange}
           resetSettings={resetSettings}
           saveSettings={saveSettings}
+          catalog={catalog}
+          addBookmark={addBookmark}
+          removeBookmark={removeBookmark}
+          syncWhisper={syncWhisper}
+          whisperClients={active?.whisperClients ?? []}
+          whisperChannels={active?.whisperChannels ?? []}
         />
-      ) : connected && active ? (
+      ) : view === 'main' && chromeConnected && active ? (
         <MainShell
           active={active}
           tabs={tabs}
@@ -1153,6 +1334,13 @@ export default function App() {
           speakers={speakers}
           toggleMute={toggleMute}
           toggleDeafen={toggleDeafen}
+          disconnect={() => {
+            if (active) {
+              disconnectTab(active.id)
+            }
+            setView('login')
+            setNav('browser')
+          }}
         />
       ) : (
         <LoginView
@@ -1181,12 +1369,29 @@ export default function App() {
           micOk={micOk}
           micDeviceName={micDeviceName}
           micPermission={mic.state.permission}
-          requestMic={() =>
-            void mic.requestMic(mic.state.selectedId || undefined)
-          }
+          requestMic={() => void mic.requestMic(mic.state.selectedId || undefined)}
           setHelpOpen={setHelpOpen}
+          catalog={catalog}
+          addBookmark={addBookmark}
+          removeBookmark={removeBookmark}
+          openSettings={() => {
+            setNav('audio')
+            setView('settings')
+            setSettingsNav('audio')
+          }}
+          openPermissions={() => {
+            setNav('permissions')
+            setView('permissions')
+            active?.client?.send({ type: 'permission_snapshot' })
+          }}
+          openBrowser={() => {
+            setNav('browser')
+            setView('browser')
+            active?.client?.send({ type: 'catalog_list' })
+          }}
         />
       )}
+    </AppChrome>
 
       {helpOpen && (
         <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
@@ -1371,6 +1576,6 @@ export default function App() {
           </DropdownMenuContent>
         </DropdownMenu>
       )}
-    </div>
+    </>
   )
 }
