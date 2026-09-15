@@ -1,18 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  DEFAULT_VOICE_PORT,
   type ChannelNode,
   type ClientInfo,
-  type GatewayToClient,
 } from '../shared/types'
-import { createGatewayClient } from './lib/gateway-client'
 import { useMicrophone } from './lib/mic'
-import { decodeVoiceFrame, encodeClientFrame } from './lib/voice-pipeline'
+import { latText } from './lib/client-status'
 import {
   applySinkId,
   getSoundsEnabled,
   getStoredSinkId,
-  playNotify,
   setSoundsEnabled,
 } from './lib/notify'
 import { getGatewayToken, setGatewayToken } from './lib/gateway-client'
@@ -20,9 +16,7 @@ import {
   LS_AEC,
   LS_AGC,
   LS_DESKTOP,
-  LS_FAV,
   LS_RNN,
-  desktopNotify,
   loadCollapsed,
   loadRecent,
   loadVolumes,
@@ -32,6 +26,9 @@ import {
   type LogItem,
   type RecentServer,
 } from './lib/utils'
+import { useToasts } from './hooks/useToasts'
+import { useGatewayConfig } from './hooks/useGatewayConfig'
+import { useConnectionTabs } from './hooks/useConnectionTabs'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,37 +52,19 @@ import { Button } from '@shared/components/ui/button'
 import { Slider as BrutalSlider } from '@shared/components/ui/slider'
 import { LoginView } from './views/LoginView'
 import { SettingsView } from './views/SettingsView'
+import { PermissionsView } from './views/PermissionsView'
 import { MainShell, type StatusKind } from './views/MainShell'
+import { AppChrome, type NavKey } from './components/AppChrome'
 import {
-  emptyTab,
   type AppView,
-  type ConnectionTab,
   type FieldErrors,
   type SettingsNav,
-  type ToastKind,
 } from './views/types'
 
 // 模块级小组件：避免在 App 内部定义导致每次渲染重挂载（输入框失焦）
 export default function App() {
-  const [tabs, setTabs] = useState<ConnectionTab[]>(() => {
-    try {
-      const fav = JSON.parse(localStorage.getItem(LS_FAV) || 'null')
-      if (fav?.host) {
-        return [
-          emptyTab({
-            host: fav.host,
-            port: String(fav.port || DEFAULT_VOICE_PORT),
-            nickname: fav.nickname || '',
-          }),
-        ]
-      }
-    } catch {
-      /* ignore */
-    }
-    return [emptyTab()]
-  })
-  const [activeId, setActiveId] = useState(() => '')
   const [view, setView] = useState<AppView>('login')
+  const [nav, setNav] = useState<NavKey>('browser')
   const [musicBotUrl, setMusicBotUrl] = useState('')
   const [settingsNav, setSettingsNav] = useState<SettingsNav>('audio')
   const [draft, setDraft] = useState('')
@@ -100,7 +79,7 @@ export default function App() {
   const [sinkId, setSinkId] = useState(() => getStoredSinkId())
   const [soundsOn, setSoundsOn] = useState(() => getSoundsEnabled())
   const [collapsed, setCollapsed] = useState(() => loadCollapsed())
-  const [treeCollapsed, setTreeCollapsed] = useState(false)
+  const [, setTreeCollapsed] = useState(false)
   const [sideTab, setSideTab] = useState<'chat' | 'events'>('chat')
   const [gatewayToken, setGatewayTokenState] = useState(() => getGatewayToken())
   const [authRequired, setAuthRequired] = useState(false)
@@ -114,10 +93,6 @@ export default function App() {
   )
   const [filterText, setFilterText] = useState('')
   const filterInputRef = useRef<HTMLInputElement>(null)
-  const [toasts, setToasts] = useState<
-    { id: number; kind: ToastKind; text: string }[]
-  >([])
-  const toastIdRef = useRef(0)
   const chatLogRef = useRef<HTMLDivElement>(null)
   const chatPinned = useRef(true)
   const prevMsgRef = useRef({ tab: '', count: 0 })
@@ -125,9 +100,6 @@ export default function App() {
   const treeBodyRef = useRef<HTMLDivElement>(null)
   const [myChanDir, setMyChanDir] = useState<'up' | 'down' | null>(null)
   const [chatAnimBase, setChatAnimBase] = useState(0)
-  const toastTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(
-    new Map(),
-  )
   const pttCaptureRef = useRef<((e: KeyboardEvent) => void) | null>(null)
   const deafenPrevVol = useRef(1)
   const [showShortcuts, setShowShortcuts] = useState(false)
@@ -152,30 +124,56 @@ export default function App() {
   )
   const [helpOpen, setHelpOpen] = useState(false)
   const desktopNotifyOnRef = useRef(desktopNotifyOn)
+  const sideTabRef = useRef(sideTab)
+  const toggleMuteRef = useRef<() => void>(() => {})
+  const toggleDeafenRef = useRef<() => void>(() => {})
+  /** Stable holder so connection callbacks can reach the latest mic controller. */
+  const micRef = useRef<{
+    pushIncoming: (opus: Uint8Array, clientId?: number) => void
+    setClientVolume: (clientId: number, v: number) => void
+  }>({ pushIncoming: () => {}, setClientVolume: () => {} })
+  const { toasts, pushToast } = useToasts()
 
-  const mic = useMicrophone((opus) => {
-    const tab = tabsRef.current.find((t) => t.id === activeIdRef.current)
-    tab?.client?.sendAudio(encodeClientFrame(opus))
+  const {
+    tabs,
+    setTabs,
+    activeId,
+    setActiveId,
+    active,
+    tabsRef,
+    activeIdRef,
+    patchTab,
+    connectTab,
+    disconnectTab,
+    cancelReconnect,
+    retryReconnect,
+    closeTab,
+    addTab: addRawTab,
+    sendUplink,
+    activeChannelId,
+  } = useConnectionTabs({
+    pushToast,
+    sideTabRef,
+    desktopNotifyOnRef,
+    pushIncoming: (opus, clientId) => micRef.current.pushIncoming(opus, clientId),
+    rememberServer,
+    setRecent,
+    setFieldErrors,
+    onActiveConnected: () => {
+      setSelectedChannelId(null)
+      setView('main')
+      setNav('channels')
+    },
   })
 
-  const tabsRef = useRef(tabs)
-  const activeIdRef = useRef(activeId)
-  const sideTabRef = useRef(sideTab)
-  const micRef = useRef(mic)
-  const toggleMuteRef = useRef(toggleMute)
-  const toggleDeafenRef = useRef(toggleDeafen)
-  const reconnectTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map(),
-  )
-  const connectTabRef = useRef<
-    (
-      id: string,
-      opts?: { auto?: boolean },
-      overrides?: { host?: string; port?: string; nickname?: string },
-    ) => void
-  >(() => {})
+  const mic = useMicrophone(sendUplink)
+  useEffect(() => {
+    micRef.current = mic
+    toggleMuteRef.current = toggleMute
+    toggleDeafenRef.current = toggleDeafen
+  })
 
-  const active = tabs.find((t) => t.id === activeId) || tabs[0]
+  useGatewayConfig({ setMusicBotUrl, setAuthRequired, setTabs })
 
   // 登录页地址输入框与 active 配置同步（config 启动填充后自动带上）
   useEffect(() => {
@@ -185,10 +183,6 @@ export default function App() {
       return cur ? cur : `${active.host}:${active.port}`
     })
   }, [active?.host, active?.port])
-
-  useEffect(() => {
-    if (!activeId && tabs[0]) setActiveId(tabs[0].id)
-  }, [activeId, tabs])
 
   // Load per-server volumes and re-apply to playback so UI matches audio
   useEffect(() => {
@@ -209,44 +203,8 @@ export default function App() {
       .catch(() => {})
   }, [])
 
-  // Single /config fetch: music bot URL, auth flag, and default host/port/nick
   useEffect(() => {
-    void fetch('/config')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((cfg: {
-        defaultHost?: string
-        defaultPort?: string
-        defaultNickname?: string
-        authRequired?: boolean
-        musicBotUrl?: string
-      } | null) => {
-        if (!cfg) return
-        if (cfg.musicBotUrl) setMusicBotUrl(cfg.musicBotUrl)
-        if (cfg.authRequired) setAuthRequired(true)
-        setTabs((list) =>
-          list.map((t, i) =>
-            i === 0 && !t.host && cfg.defaultHost
-              ? {
-                  ...t,
-                  host: cfg.defaultHost || t.host,
-                  port: cfg.defaultPort || t.port,
-                  nickname: cfg.defaultNickname || t.nickname,
-                }
-              : t,
-          ),
-        )
-      })
-      .catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    const timers = reconnectTimers.current
-    const toastTimers = toastTimersRef.current
     return () => {
-      for (const t of timers.values()) clearTimeout(t)
-      timers.clear()
-      for (const t of toastTimers.values()) clearTimeout(t)
-      toastTimers.clear()
       if (pttCaptureRef.current) {
         window.removeEventListener('keydown', pttCaptureRef.current, true)
         pttCaptureRef.current = null
@@ -254,309 +212,10 @@ export default function App() {
     }
   }, [])
 
-  const patchTab = useCallback((id: string, patch: Partial<ConnectionTab>) => {
-    setTabs((list) => list.map((t) => (t.id === id ? { ...t, ...patch } : t)))
-  }, [])
-
-  const pushToast = useCallback(
-    (kind: ToastKind, text: string) => {
-      const id = ++toastIdRef.current
-      setToasts((list) => [...list.slice(-2), { id, kind, text }])
-      const timer = setTimeout(() => {
-        toastTimersRef.current.delete(id)
-        setToasts((list) => list.filter((t) => t.id !== id))
-      }, 6000)
-      toastTimersRef.current.set(id, timer)
-    },
-    [],
-  )
-
-  const scheduleReconnect = useCallback(
-    (tabId: string) => {
-      const tab = tabsRef.current.find((t) => t.id === tabId)
-      if (!tab || tab.manualDisconnect || !tab.wasConnected) return
-      if (tab.reconnectAttempts >= 5) return
-      if (reconnectTimers.current.has(tabId)) return
-      const attempt = tab.reconnectAttempts + 1
-      const delay = Math.min(1000 * 2 ** (attempt - 1), 8000)
-      patchTab(tabId, { reconnectAttempts: attempt })
-      const timer = setTimeout(() => {
-        reconnectTimers.current.delete(tabId)
-        const t = tabsRef.current.find((x) => x.id === tabId)
-        if (!t || t.manualDisconnect) return
-        connectTabRef.current(tabId, { auto: true })
-      }, delay)
-      reconnectTimers.current.set(tabId, timer)
-    },
-    [patchTab],
-  )
-
-  const onMessage = useCallback(
-    (tabId: string) => (msg: GatewayToClient) => {
-      const isActive = () => tabId === activeIdRef.current
-      switch (msg.type) {
-        case 'status':
-          patchTab(tabId, {
-            connState: msg.state,
-            lastError: msg.state === 'error' ? msg.message || '连接错误' : null,
-          })
-          if (msg.state === 'connected') {
-            patchTab(tabId, {
-              wasConnected: true,
-              reconnectAttempts: 0,
-              manualDisconnect: false,
-            })
-            if (isActive()) {
-              playNotify('connect')
-              pushToast('success', '已连接')
-              setSelectedChannelId(null)
-              setView('main')
-            }
-          }
-          if (msg.state === 'disconnected' || msg.state === 'error') {
-            if (isActive()) {
-              playNotify('disconnect')
-              const t = tabsRef.current.find((x) => x.id === tabId)
-              if (msg.state === 'error') {
-                pushToast('err', msg.message || '连接错误')
-              } else if (t?.wasConnected && !t.manualDisconnect) {
-                pushToast('warn', '连接断开，正在自动重连…')
-              }
-            }
-            scheduleReconnect(tabId)
-          }
-          break
-        case 'server_info':
-          patchTab(tabId, {
-            serverName: msg.name,
-            selfId: msg.selfId,
-          })
-          break
-        case 'channel_tree':
-          patchTab(tabId, { channels: msg.channels })
-          break
-        case 'client_list': {
-          setTabs((list) =>
-            list.map((t) => {
-              if (t.id !== tabId) return t
-              const prev = t.prevClientIds
-              const nextIds = new Set(msg.clients.map((c) => c.id))
-              if (prev.size > 0 && isActive()) {
-                for (const c of msg.clients) {
-                  if (!prev.has(c.id) && c.id !== t.selfId) playNotify('join')
-                }
-                for (const id of prev) {
-                  if (!nextIds.has(id) && id !== t.selfId) playNotify('leave')
-                }
-              }
-              return { ...t, clients: msg.clients, prevClientIds: nextIds }
-            }),
-          )
-          break
-        }
-        case 'message': {
-          const mention =
-            /\*poke\*/i.test(msg.text) || msg.target.startsWith('client:')
-          const active0 = isActive()
-          setTabs((list) =>
-            list.map((t) =>
-              t.id === tabId
-                ? {
-                    ...t,
-                    messages: [...t.messages.slice(-200), { ...msg }],
-                    unread: active0 ? t.unread : t.unread + 1,
-                    unreadMention: active0
-                      ? t.unreadMention
-                      : t.unreadMention || mention,
-                  }
-                : t,
-            ),
-          )
-          if (isActive()) {
-            if (/\*poke\*/i.test(msg.text)) playNotify('poke')
-            else if (msg.target.startsWith('client:')) playNotify('pm')
-          }
-          if (mention) {
-            if (
-              'Notification' in window &&
-              Notification.permission === 'default'
-            ) {
-              void Notification.requestPermission()
-            }
-            desktopNotify(
-              msg.target.startsWith('client:')
-                ? `私聊 · ${msg.from}`
-                : `Poke · ${msg.from}`,
-              msg.text,
-              desktopNotifyOnRef.current,
-            )
-          }
-          break
-        }
-        case 'event_log':
-          setTabs((list) =>
-            list.map((t) =>
-              t.id === tabId
-                ? {
-                    ...t,
-                    logs: [...t.logs.slice(-199), { ...msg } as LogItem],
-                    eventsUnread:
-                      !isActive() || sideTabRef.current !== 'events'
-                        ? t.eventsUnread + 1
-                        : t.eventsUnread,
-                  }
-                : t,
-            ),
-          )
-          break
-        case 'error':
-          patchTab(tabId, { lastError: `${msg.code}: ${msg.message}` })
-          if (isActive()) pushToast('err', `${msg.code}: ${msg.message}`)
-          break
-      }
-    },
-    [patchTab, scheduleReconnect, pushToast],
-  )
-
-  const onAudioFrameFor = useCallback(
-    (tabId: string) => (data: ArrayBuffer) => {
-      // Only the active tab plays voice
-      if (tabId !== activeIdRef.current) return
-      const parsed = decodeVoiceFrame(data)
-      if (!parsed || !parsed.opus.length) return
-      micRef.current.pushIncoming(parsed.opus, parsed.clientId)
-    },
-    [],
-  )
-
-  const connectTab = (
-    id: string,
-    opts?: { auto?: boolean },
-    overrides?: { host?: string; port?: string; nickname?: string },
-  ) => {
-    const tab = tabsRef.current.find((t) => t.id === id)
-    const host = (overrides?.host ?? tab?.host ?? '').trim()
-    const nick = (overrides?.nickname ?? tab?.nickname ?? '').trim()
-    const port = overrides?.port ?? tab?.port ?? String(DEFAULT_VOICE_PORT)
-    if (!tab || !host || !nick) {
-      if (!opts?.auto) {
-        setFieldErrors({
-          host: !host ? '请填写服务器地址' : undefined,
-          nickname: !nick ? '请填写昵称' : undefined,
-        })
-      }
-      return
-    }
-    setFieldErrors({})
-    // Avoid connect storms (manual spam or auto-reconnect while handshake running)
-    if (tab.connState === 'connecting') return
-    if (opts?.auto && tab.connState === 'connected') return
-    // Tear down previous socket without waiting
-    try {
-      tab.client?.close()
-    } catch {
-      /* ignore */
-    }
-    const client = createGatewayClient({
-      onMessage: onMessage(id),
-      onSocketStatus: (s) => {
-        patchTab(id, { wsStatus: s })
-        if (s === 'closed' || s === 'error') scheduleReconnect(id)
-      },
-      onAudioFrame: onAudioFrameFor(id),
-    })
-    client.start()
-    patchTab(id, {
-      client,
-      lastError: null,
-      messages: [],
-      whisperClients: [],
-      whisperChannels: [],
-    })
-    if (rememberServer) {
-      localStorage.setItem(
-        LS_FAV,
-        JSON.stringify({
-          host: host,
-          port,
-          nickname: nick,
-        }),
-      )
-    }
-    setRecent((prev) => {
-      const next = [
-        { host, port, label: host, ts: Date.now() },
-        ...prev.filter((r) => !(r.host === host && r.port === port)),
-      ].slice(0, 5)
-      saveRecent(next)
-      return next
-    })
-    // gateway-client queues messages until WS opens — send immediately
-    client.send({
-      type: 'connect',
-      host,
-      port: Number(port) || DEFAULT_VOICE_PORT,
-      nickname: nick,
-      password: tab.password || undefined,
-    })
-  }
-
-  const disconnectTab = (id: string) => {
-    const timer = reconnectTimers.current.get(id)
-    if (timer) {
-      clearTimeout(timer)
-      reconnectTimers.current.delete(id)
-    }
-    patchTab(id, { manualDisconnect: true, reconnectAttempts: 0 })
-    const tab = tabsRef.current.find((t) => t.id === id)
-    tab?.client?.send({ type: 'disconnect' })
-  }
-
-  const cancelReconnect = (id: string) => {
-    const timer = reconnectTimers.current.get(id)
-    if (timer) {
-      clearTimeout(timer)
-      reconnectTimers.current.delete(id)
-    }
-    patchTab(id, { manualDisconnect: true, reconnectAttempts: 0 })
-  }
-
-  const retryReconnect = (id: string) => {
-    patchTab(id, { reconnectAttempts: 0, manualDisconnect: false })
-    connectTab(id)
-  }
-
-  const closeTab = (id: string) => {
-    const timer = reconnectTimers.current.get(id)
-    if (timer) {
-      clearTimeout(timer)
-      reconnectTimers.current.delete(id)
-    }
-    const tab = tabsRef.current.find((t) => t.id === id)
-    tab?.client?.send({ type: 'disconnect' })
-    setTimeout(() => tab?.client?.close(), 200)
-    const wasActive = activeIdRef.current === id
-    setTabs((list) => {
-      const next = list.filter((t) => t.id !== id)
-      if (next.length === 0) return [emptyTab()]
-      return next
-    })
-    // Side effect of setActiveId must not run inside the setTabs updater
-    if (wasActive) setActiveId('')
-  }
-
   const addTab = () => {
-    const t = emptyTab()
-    setTabs((list) => [...list, t])
-    setActiveId(t.id)
+    addRawTab()
     setView('login')
   }
-
-  const activeChannelId = useMemo(() => {
-    if (!active) return null
-    const me = active.clients.find((c) => c.id === active.selfId)
-    return me?.channelId ?? null
-  }, [active])
 
   // Track whether my channel row is scrolled out of view
   const updateMyChanVisibility = useCallback(() => {
@@ -681,7 +340,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [patchTab])
+  }, [patchTab, closeTab, setActiveId, tabsRef, activeIdRef])
 
   // Chat scroll pinning: follow only when pinned to bottom
   const activeMsgCount = active?.messages.length ?? 0
@@ -763,15 +422,12 @@ export default function App() {
     activeIdRef.current = activeId
     sideTabRef.current = sideTab
     micRef.current = mic
-    connectTabRef.current = connectTab
     toggleMuteRef.current = toggleMute
     toggleDeafenRef.current = toggleDeafen
     levelSmoothRef.current =
       levelSmoothRef.current * 0.72 + (muted ? 0 : mic.state.level) * 0.28
   })
 
-  const speakers =
-    active?.clients.filter((c) => c.isTalking && c.id !== active.selfId) ?? []
   const reconnecting =
     !!active &&
     active.connState === 'disconnected' &&
@@ -781,7 +437,7 @@ export default function App() {
 
   // ---------- 派生值（设计稿视图） ----------
 
-  const lat = (c: ClientInfo) => (c.latency != null ? c.latency : '—')
+  const lat = (c: ClientInfo) => latText(c)
 
   const selfClient = active?.clients.find((c) => c.id === active.selfId) ?? null
   const selfLatency = selfClient?.latency ?? null
@@ -796,27 +452,12 @@ export default function App() {
     ? channelById.get(activeChannelId) ?? null
     : null
 
-  const channelPath = useMemo(() => {
-    const names: string[] = []
-    let cur = activeChannelNode
-    let guard = 0
-    while (cur && guard++ < 10) {
-      names.unshift(cur.name)
-      cur = cur.parentId != null ? channelById.get(cur.parentId) ?? null : null
-    }
-    return names
-  }, [activeChannelNode, channelById])
-
   const channelName = activeChannelNode?.name ?? '语音频道'
 
   const channelMembers = useMemo(() => {
     if (!active || activeChannelId == null) return []
     return active.clients.filter((c) => c.channelId === activeChannelId)
   }, [active, activeChannelId])
-
-  const talkingCount = channelMembers.filter(
-    (c) => c.isTalking || (c.id === active?.selfId && uplink),
-  ).length
 
   const focusMember = useMemo(() => {
     const peerTalker = channelMembers.find(
@@ -827,13 +468,6 @@ export default function App() {
       return selfClient
     return channelMembers[0] ?? null
   }, [channelMembers, selfClient, uplink, active?.selfId])
-
-  const userStateCls = (c: ClientInfo) => {
-    if (c.isTalking) return 'talking'
-    if (c.isInputMuted || c.isMuted) return 'muted'
-    if (c.isOutputMuted) return 'listen'
-    return 'idle'
-  }
 
   function statusFor(c: ClientInfo): { text: string; kind: StatusKind } {
     const isSelf = c.id === active?.selfId
@@ -887,10 +521,14 @@ export default function App() {
 
   // ---------- 登录页操作 ----------
 
-  const connectFromLogin = () => {
+  const connectFromLogin = (overrides?: { address?: string; nickname?: string; password?: string }) => {
     if (!active) return
-    const { host, port } = parseHostPort(addressInput)
-    const nick = active.nickname.trim()
+    const addr = overrides?.address ?? addressInput
+    const nick = (overrides?.nickname ?? active.nickname).trim()
+    const { host, port } = parseHostPort(addr)
+    if (overrides?.password !== undefined) {
+      patchTab(active.id, { password: overrides.password })
+    }
     if (!host || !nick) {
       setFieldErrors({
         host: !host ? '请填写服务器地址' : undefined,
@@ -938,17 +576,8 @@ export default function App() {
     setFieldErrors({})
   }
 
-  const inviteCopy = () => {
-    if (!active) return
-    const url = `ts3server://${active.host}?port=${active.port || DEFAULT_VOICE_PORT}`
-    void navigator.clipboard
-      .writeText(url)
-      .then(() => pushToast('success', '共享链接已复制'))
-      .catch(() => pushToast('err', '复制失败，请手动复制服务器地址'))
-  }
-
   const resetSettings = () => {
-    mic.setVox({ mode: 'vox', threshold: 0.08, pttKey: 'Space' })
+    mic.setVox({ mode: 'vox', threshold: 0.18, pttKey: 'Space' })
     mic.setOutputVolume(1)
     setSoundsOn(true)
     setSoundsEnabled(true)
@@ -1021,9 +650,10 @@ export default function App() {
     })
   }
 
-  const openSettings = (nav: SettingsNav) => {
-    setSettingsNav(nav)
+  const openSettings = (navItem: SettingsNav) => {
+    setSettingsNav(navItem)
     setView('settings')
+    setNav('audio')
   }
 
   const dismissHttpsBar = () => {
@@ -1044,10 +674,52 @@ export default function App() {
     setGatewayToken(v)
   }
 
+  const layout: 'full' | 'solo' =
+    view === 'main' && nav === 'channels' ? 'full' : 'solo'
+  const chromeConnected = connected
+  const activeNickname = active?.nickname || ''
+  const activeServerName = active?.serverName
+  const activeHost = active?.host || ''
+  const activeLatency = selfLatency
+
+  const handleNav = (n: NavKey) => {
+    setNav(n)
+    if (n === 'channels') {
+      if (chromeConnected) setView('main')
+      else setView('login')
+    } else if (n === 'audio') {
+      setView('settings')
+      setSettingsNav('audio')
+    } else if (n === 'browser') {
+      setView('login')
+    } else if (n === 'permissions') {
+      setView('permissions')
+    }
+  }
+
   return (
-    <div className="app">
-      <div className="noise-overlay" aria-hidden="true" />
-      {view === 'settings' ? (
+    <>
+    <AppChrome
+      connected={chromeConnected}
+      nickname={activeNickname}
+      serverName={activeServerName}
+      host={activeHost}
+      selfLatency={activeLatency}
+      muted={muted}
+      deafened={deafened}
+      soundsOn={soundsOn}
+      musicBotUrl={musicBotUrl}
+      nav={nav}
+      layout={layout}
+      setNav={handleNav}
+      openSettings={openSettings}
+      toggleSounds={toggleSounds}
+      toggleMute={toggleMute}
+      toggleDeafen={toggleDeafen}
+    >
+      {view === 'permissions' ? (
+        <PermissionsView />
+      ) : view === 'settings' ? (
         <SettingsView
           nickname={active?.nickname || ''}
           setNickname={setNickname}
@@ -1079,7 +751,7 @@ export default function App() {
           resetSettings={resetSettings}
           saveSettings={saveSettings}
         />
-      ) : connected && active ? (
+      ) : view === 'main' && chromeConnected && active ? (
         <MainShell
           active={active}
           tabs={tabs}
@@ -1089,7 +761,6 @@ export default function App() {
           filterText={filterText}
           setFilterText={setFilterText}
           filterInputRef={filterInputRef}
-          treeCollapsed={treeCollapsed}
           setTreeCollapsed={setTreeCollapsed}
           treeBodyRef={treeBodyRef}
           updateMyChanVisibility={updateMyChanVisibility}
@@ -1106,13 +777,8 @@ export default function App() {
           closeTab={closeTab}
           addTab={addTab}
           channelName={channelName}
-          channelPath={channelPath}
           whisperActive={whisperActive}
-          soundsOn={soundsOn}
-          toggleSounds={toggleSounds}
-          musicBotUrl={musicBotUrl}
           openSettings={openSettings}
-          inviteCopy={inviteCopy}
           insecureContext={insecureContext}
           httpsDismissed={httpsDismissed}
           dismissHttpsBar={dismissHttpsBar}
@@ -1124,7 +790,6 @@ export default function App() {
           focusMember={focusMember}
           statusFor={statusFor}
           channelMembers={channelMembers}
-          talkingCount={talkingCount}
           meterLevel={meterLevel}
           muted={muted}
           deafened={deafened}
@@ -1147,12 +812,16 @@ export default function App() {
           logText={logText}
           channelDesc={channelDesc}
           channelById={channelById}
-          userStateCls={userStateCls}
           mic={mic}
-          voxPct={voxPct}
-          speakers={speakers}
           toggleMute={toggleMute}
           toggleDeafen={toggleDeafen}
+          disconnect={() => {
+            if (active) {
+              disconnectTab(active.id)
+            }
+            setView('login')
+            setNav('browser')
+          }}
         />
       ) : (
         <LoginView
@@ -1181,12 +850,11 @@ export default function App() {
           micOk={micOk}
           micDeviceName={micDeviceName}
           micPermission={mic.state.permission}
-          requestMic={() =>
-            void mic.requestMic(mic.state.selectedId || undefined)
-          }
+          requestMic={() => void mic.requestMic(mic.state.selectedId || undefined)}
           setHelpOpen={setHelpOpen}
         />
       )}
+    </AppChrome>
 
       {helpOpen && (
         <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
@@ -1371,6 +1039,6 @@ export default function App() {
           </DropdownMenuContent>
         </DropdownMenu>
       )}
-    </div>
+    </>
   )
 }

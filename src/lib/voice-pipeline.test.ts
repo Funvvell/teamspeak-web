@@ -29,7 +29,7 @@ describe('encodeClientFrame (uplink, 2-byte header, no id)', () => {
   })
 })
 
-describe('encodeServerFrame / decodeVoiceFrame (downlink, always 4-byte header)', () => {
+describe('encodeServerFrame / decodeVoiceFrame (downlink, always 6-byte header)', () => {
   it('roundtrip with clientId', () => {
     const opus = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x01])
     const clientId = 0x1234
@@ -37,7 +37,9 @@ describe('encodeServerFrame / decodeVoiceFrame (downlink, always 4-byte header)'
     expect(frame.length).toBe(FRAME_HEADER_BYTES + opus.length)
     expect(frame[0]).toBe(OPCODE_AUDIO)
     expect(frame[1]).toBe(CODEC_OPUS_VOICE)
-    expect((frame[2] << 8) | frame[3]).toBe(clientId)
+    expect(
+      ((frame[2] << 24) | (frame[3] << 16) | (frame[4] << 8) | frame[5]) >>> 0,
+    ).toBe(clientId)
 
     const parsed = decodeVoiceFrame(frame)
     expect(parsed).not.toBeNull()
@@ -46,10 +48,10 @@ describe('encodeServerFrame / decodeVoiceFrame (downlink, always 4-byte header)'
     expect([...parsed!.opus]).toEqual([...opus])
   })
 
-  it('clientId u16 BE: max value 65535 survives roundtrip', () => {
+  it('clientId beyond u16 (100000) survives roundtrip', () => {
     const opus = new Uint8Array([0x01, 0x02, 0x03])
-    const parsed = decodeVoiceFrame(encodeServerFrame(opus, 0xffff))
-    expect(parsed!.clientId).toBe(0xffff)
+    const parsed = decodeVoiceFrame(encodeServerFrame(opus, 100000))
+    expect(parsed!.clientId).toBe(100000)
     expect([...parsed!.opus]).toEqual([...opus])
   })
 
@@ -82,65 +84,54 @@ describe('encodeServerFrame / decodeVoiceFrame (downlink, always 4-byte header)'
   })
 })
 
-describe('decodeVoiceFrame edge cases (always 4-byte when length >= 4)', () => {
+describe('decodeVoiceFrame edge cases (always 6-byte when length >= 6)', () => {
   it('rejects wrong opcode', () => {
-    expect(decodeVoiceFrame(new Uint8Array([9, 1, 2, 3, 4]))).toBeNull()
+    expect(decodeVoiceFrame(new Uint8Array([9, 1, 2, 3, 4, 5, 6]))).toBeNull()
   })
 
-  it('rejects frames shorter than 4 bytes (no legacy short-frame path)', () => {
+  it('rejects frames shorter than 6 bytes (no legacy short-frame path)', () => {
     expect(decodeVoiceFrame(new Uint8Array([]))).toBeNull()
     expect(decodeVoiceFrame(new Uint8Array([OPCODE_AUDIO]))).toBeNull()
     expect(
       decodeVoiceFrame(new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE])),
     ).toBeNull()
-    // len 3 would have been misread as legacy before; now rejected
     expect(
       decodeVoiceFrame(
-        new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0xff]),
+        new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0xff, 0x00, 0x00]),
       ),
     ).toBeNull()
   })
 
-  it('length 4 is header-only downlink (empty opus allowed)', () => {
+  it('length 6 is header-only downlink (empty opus allowed)', () => {
     const parsed = decodeVoiceFrame(
-      new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0x00, 0x05]),
+      new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0x00, 0x00, 0x00, 0x05]),
     )
     expect(parsed).not.toBeNull()
     expect(parsed!.clientId).toBe(5)
     expect(parsed!.opus.length).toBe(0)
   })
-
-  it('does not treat a 2-byte uplink frame as downlink', () => {
-    // 2-byte uplink + extra payload would look like 4-byte downlink if fed
-    // to decodeVoiceFrame — callers must not do that. decodeVoiceFrame always
-    // reads id from bytes 2–3 when length >= 4.
-    const uplink = encodeClientFrame(new Uint8Array([0x11, 0x22, 0x33]))
-    expect(uplink.length).toBe(5)
-    const parsed = decodeVoiceFrame(uplink)!
-    // Bytes 2–3 of the uplink (first two opus bytes) are read as clientId
-    expect(parsed.clientId).toBe((0x11 << 8) | 0x22)
-    expect([...parsed.opus]).toEqual([0x33])
-  })
 })
 
 describe('decodeServerFrame (requires header + at least 1 opus byte)', () => {
-  it('accepts length >= 5', () => {
+  it('accepts header + 1 opus byte', () => {
     const opus = new Uint8Array([0x01])
     const parsed = decodeServerFrame(encodeServerFrame(opus, 42))
     expect(parsed!.clientId).toBe(42)
     expect([...parsed!.opus]).toEqual([0x01])
   })
 
-  it('rejects header-only (length 4)', () => {
+  it('rejects header-only (length 6)', () => {
     expect(
       decodeServerFrame(
-        new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0x00, 0x01]),
+        new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0x00, 0x00, 0x00, 0x01]),
       ),
     ).toBeNull()
   })
 
   it('rejects short frames', () => {
-    expect(decodeServerFrame(new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE]))).toBeNull()
+    expect(
+      decodeServerFrame(new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE])),
+    ).toBeNull()
   })
 })
 

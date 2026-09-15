@@ -27,7 +27,11 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
     this.lastPostedVad = -1
     this.port.onmessage = (e) => {
       const d = e.data
-      if (d && d.type === 'set-denoise') this.denoise = !!d.enabled
+      if (d && d.type === 'set-denoise') {
+        this.denoise = !!d.enabled
+        // Force a VAD post after toggle so VOX never sticks on a stale score.
+        this.lastPostedVad = -1
+      }
       if (d && d.type === 'init') this.initWasm(d.module)
     }
   }
@@ -95,7 +99,8 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
       return true
     }
 
-    this.pending.push(ch)
+    // AudioWorklet may reuse the input quantum buffer — copy before queueing.
+    this.pending.push(Float32Array.from(ch))
     const fs = this.frameSize
 
     // 处理所有已凑满的 480 帧窗口
@@ -107,28 +112,29 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
       pendLen -= got
       if (got < fs) break
       let out
-      if (this.denoise) {
-        if (!this.ensureMemView()) {
-          out = frame
-        } else {
-          // RNNoise 假定 16-bit PCM：float(-1..1) × 32768 → Int16 写入
-          const i16 = this.memI16
-          const base = this.inPtr >> 1
-          for (let i = 0; i < fs; i++) {
-            let v = frame[i] * 32768
-            if (v > 32767) v = 32767
-            else if (v < -32768) v = -32768
-            i16[base + i] = v | 0
-          }
-          this.vad = this.wasm.rnnoise_process_frame(this.state, this.inPtr, this.outPtr)
+      if (this.ensureMemView()) {
+        // RNNoise 假定 16-bit PCM：float(-1..1) × 32768 → Int16 写入
+        const i16 = this.memI16
+        const base = this.inPtr >> 1
+        for (let i = 0; i < fs; i++) {
+          let v = frame[i] * 32768
+          if (v > 32767) v = 32767
+          else if (v < -32768) v = -32768
+          i16[base + i] = v | 0
+        }
+        // Always run the model so VAD stays live even when denoise is off.
+        this.vad = this.wasm.rnnoise_process_frame(this.state, this.inPtr, this.outPtr)
+        if (this.denoise) {
           out = new Float32Array(fs)
           const obase = this.outPtr >> 1
           for (let i = 0; i < fs; i++) out[i] = i16[obase + i] / 32768
-          // VAD 上报：仅在相对上次有显著变化时 post，降低主线程消息压力
-          if (Math.abs(this.vad - this.lastPostedVad) > 0.05) {
-            this.lastPostedVad = this.vad
-            this.port.postMessage({ vad: this.vad })
-          }
+        } else {
+          out = frame
+        }
+        // VAD 上报：仅在相对上次有显著变化时 post，降低主线程消息压力
+        if (Math.abs(this.vad - this.lastPostedVad) > 0.05) {
+          this.lastPostedVad = this.vad
+          this.port.postMessage({ vad: this.vad })
         }
       } else {
         out = frame

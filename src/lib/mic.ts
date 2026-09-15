@@ -160,11 +160,14 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
     const { mode, threshold } = voxRef.current
     if (mode === 'open') return true
     if (mode === 'ptt') return pttHeldRef.current
-    // vox：RNNoise VAD（0~1 语音概率）驱动 + RMS 响度兜底——
+    // vox：RNNoise VAD（0~1 语音概率）驱动 + 与编码链同源的 RMS 响度兜底——
     // VAD 就绪时用深度模型识别人声（抗键盘/风扇误触发），未就绪回退响度阈值
     const now = performance.now()
     const vad = pipelineRef.current?.getVad?.() ?? -1
-    const speaking = vad >= 0 ? vad >= 0.5 || levelRef.current >= threshold : levelRef.current >= threshold
+    const speaking =
+      vad >= 0
+        ? vad >= 0.5 || levelRef.current >= threshold
+        : levelRef.current >= threshold
     if (speaking) {
       lastTalkMs.current = now
       return true
@@ -226,10 +229,10 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
           audio: {
             deviceId: deviceId ? { exact: deviceId } : undefined,
             channelCount: 1,
-            // 软件 AEC/AGC 开启时关闭浏览器原生实现，避免双重处理相互干扰；
-            // 关闭时回退到浏览器原生（Chrome = AEC3）
+            // 软件 AEC/AGC/RNNoise 开启时关闭浏览器原生实现，避免双重处理相互干扰；
+            // 关闭时回退到浏览器原生（Chrome = AEC3 / NS / AGC）
             echoCancellation: !fxRef.current.aec,
-            noiseSuppression: true,
+            noiseSuppression: !fxRef.current.noise,
             autoGainControl: !fxRef.current.agc,
           },
         })
@@ -270,14 +273,21 @@ export function useMicrophone(onOpusFrame?: (opus: Uint8Array) => void) {
         const tick = () => {
           // Stop the meter loop if this capture generation was torn down.
           if (gen !== opGenRef.current) return
-          analyser.getByteTimeDomainData(data)
-          let sum = 0
-          for (let i = 0; i < data.length; i++) {
-            const v = (data[i] - 128) / 128
-            sum += v * v
+          // Prefer post-RNNoise pipeline level (same signal the encoder sees);
+          // fall back to the raw gUM analyser when capture is not running.
+          const piped = pipelineRef.current?.getInputLevel?.() ?? -1
+          let level: number
+          if (piped >= 0) {
+            level = piped
+          } else {
+            analyser.getByteTimeDomainData(data)
+            let sum = 0
+            for (let i = 0; i < data.length; i++) {
+              const v = (data[i] - 128) / 128
+              sum += v * v
+            }
+            level = Math.min(1, Math.sqrt(sum / data.length) * 4)
           }
-          const rms = Math.sqrt(sum / data.length)
-          const level = Math.min(1, rms * 4)
           levelRef.current = level
           const open = shouldSend()
           const now = performance.now()

@@ -11,6 +11,8 @@ const LS_TOKEN = 'tsweb:token'
  * Keeps reconnect bursts from unbounded growth if the socket stays down.
  */
 const MAX_SEND_QUEUE = 100
+/** Drop live voice when the socket send buffer backs up (keep latency low). */
+const MAX_AUDIO_BUFFERED_BYTES = 64 * 1024
 
 export function getGatewayToken() {
   return localStorage.getItem(LS_TOKEN) || ''
@@ -51,6 +53,8 @@ export function createGatewayClient(handlers: {
 
   function sendAudio(frame: Uint8Array) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return
+    // Live voice: drop rather than grow an unbounded backlog on slow links.
+    if (ws.bufferedAmount > MAX_AUDIO_BUFFERED_BYTES) return
     ws.send(frame)
   }
 

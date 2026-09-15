@@ -34,6 +34,13 @@ const MAX_PAYLOAD = Number(process.env.MAX_PAYLOAD || 1024 * 1024)
 // 并发 WS 连接上限（每连接一个 TS3 会话，防资源耗尽）
 const MAX_CONNECTIONS = Number(process.env.MAX_CONNECTIONS || 64)
 const ALLOW_OPEN = process.env.ALLOW_OPEN === '1'
+/** Comma-separated Origin allowlist for /ws upgrade. Empty = allow any (legacy). */
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+/** Set ALLOW_QUERY_TOKEN=0 to reject ?token= (prefer subprotocol / reverse-proxy auth). */
+const ALLOW_QUERY_TOKEN = process.env.ALLOW_QUERY_TOKEN !== '0'
 
 // Fail-closed: real TS3 protocol requires a gateway token unless explicitly allowed
 if (PROTOCOL !== 'mock' && !GATEWAY_TOKEN && !ALLOW_OPEN) {
@@ -42,6 +49,39 @@ if (PROTOCOL !== 'mock' && !GATEWAY_TOKEN && !ALLOW_OPEN) {
       'Set GATEWAY_TOKEN, or PROTOCOL=mock for local demo, or ALLOW_OPEN=1 to accept the risk.',
   )
   process.exit(1)
+}
+
+if (
+  PROTOCOL !== 'mock' &&
+  process.env.NODE_ENV === 'production' &&
+  !process.env.ALLOWED_HOSTS &&
+  !process.env.ALLOW_HOSTS &&
+  process.env.ALLOW_PRIVATE_HOSTS !== '1' &&
+  process.env.ALLOW_PRIVATE !== '1'
+) {
+  console.warn(
+    '[gateway] production without ALLOWED_HOSTS — hostname DNS rebinding risk remains. ' +
+      'Prefer ALLOWED_HOSTS=ts.example.com,*.corp.example',
+  )
+}
+
+function originAllowed(origin: string | undefined): boolean {
+  if (ALLOWED_ORIGINS.length === 0) return true
+  if (!origin) return false
+  return ALLOWED_ORIGINS.includes(origin)
+}
+
+function queryTokenOk(url: URL): boolean {
+  if (!GATEWAY_TOKEN) return true
+  if (!ALLOW_QUERY_TOKEN) return false
+  const q = url.searchParams.get('token')
+  return q !== null && timingSafeEqualStr(q, GATEWAY_TOKEN)
+}
+
+function headerTokenOk(req: http.IncomingMessage): boolean {
+  if (!GATEWAY_TOKEN) return true
+  const auth = req.headers.authorization || ''
+  return auth.startsWith('Bearer ') && timingSafeEqualStr(auth.slice(7), GATEWAY_TOKEN)
 }
 
 const createAdapter: AdapterFactory =
@@ -70,14 +110,7 @@ function timingSafeEqualStr(a: string, b: string): boolean {
 }
 
 function checkHttpToken(req: http.IncomingMessage, url: URL): boolean {
-  if (!GATEWAY_TOKEN) return true
-  const q = url.searchParams.get('token')
-  if (q && timingSafeEqualStr(q, GATEWAY_TOKEN)) return true
-  const auth = req.headers.authorization || ''
-  if (auth.startsWith('Bearer ') && timingSafeEqualStr(auth.slice(7), GATEWAY_TOKEN)) {
-    return true
-  }
-  return false
+  return queryTokenOk(url) || headerTokenOk(req)
 }
 
 function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) {
@@ -104,12 +137,12 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) {
       authRequired: Boolean(GATEWAY_TOKEN),
       protocol: PROTOCOL,
       defaultPort: DEFAULT_PORT,
-      musicBotUrl: (process.env.MUSIC_BOT_URL || '').trim(),
     }
-    // Sensitive prefills only with a valid token (or open mode)
+    // Sensitive prefills / internal URLs only with a valid token (or open mode)
     if (authorized) {
       body.defaultHost = DEFAULT_HOST
       body.defaultNickname = DEFAULT_NICKNAME
+      body.musicBotUrl = (process.env.MUSIC_BOT_URL || '').trim()
     }
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(body))
@@ -160,22 +193,21 @@ server.on('upgrade', (req, socket, head) => {
     socket.destroy()
     return
   }
+  const origin = req.headers.origin
+  if (!originAllowed(typeof origin === 'string' ? origin : undefined)) {
+    socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+    socket.destroy()
+    return
+  }
   if (wss.clients.size >= MAX_CONNECTIONS) {
     socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n')
     socket.destroy()
     return
   }
-  if (GATEWAY_TOKEN) {
-    const q = url.searchParams.get('token')
-    const auth = req.headers.authorization || ''
-    const qOk = q !== null && timingSafeEqualStr(q, GATEWAY_TOKEN)
-    const authOk =
-      auth.startsWith('Bearer ') && timingSafeEqualStr(auth.slice(7), GATEWAY_TOKEN)
-    if (!qOk && !authOk) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
-      socket.destroy()
-      return
-    }
+  if (GATEWAY_TOKEN && !queryTokenOk(url) && !headerTokenOk(req)) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+    socket.destroy()
+    return
   }
   wss.handleUpgrade(req, socket, head, (ws) => {
     wss.emit('connection', ws, req)
@@ -184,6 +216,10 @@ server.on('upgrade', (req, socket, head) => {
 
 wss.on('connection', (ws) => {
   const session = new Session(ws, createAdapter)
+  ;(ws as import('ws').WebSocket & { isAlive?: boolean }).isAlive = true
+  ws.on('pong', () => {
+    ;(ws as import('ws').WebSocket & { isAlive?: boolean }).isAlive = true
+  })
   ws.on('message', (raw, isBinary) => {
     session.handleRaw(isBinary ? (raw as Buffer) : String(raw))
   })
@@ -194,6 +230,44 @@ wss.on('connection', (ws) => {
     void session.dispose()
   })
 })
+
+// Reap dead sockets so MAX_CONNECTIONS slots free up after NAT/TCP drops.
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    const sock = ws as import('ws').WebSocket & { isAlive?: boolean }
+    if (sock.isAlive === false) {
+      sock.terminate()
+      continue
+    }
+    sock.isAlive = false
+    try {
+      sock.ping()
+    } catch {
+      sock.terminate()
+    }
+  }
+}, 30_000)
+heartbeat.unref?.()
+
+function shutdown(signal: string) {
+  console.log(`[gateway] ${signal} — draining`)
+  clearInterval(heartbeat)
+  for (const ws of wss.clients) {
+    try {
+      ws.close(1001, 'server shutdown')
+    } catch {
+      /* ignore */
+    }
+  }
+  wss.close()
+  server.close(() => {
+    process.exit(0)
+  })
+  // Hard exit if clients refuse to close
+  setTimeout(() => process.exit(0), 3000).unref?.()
+}
+process.once('SIGTERM', () => shutdown('SIGTERM'))
+process.once('SIGINT', () => shutdown('SIGINT'))
 
 server.listen(PORT, HOST, () => {
   console.log(

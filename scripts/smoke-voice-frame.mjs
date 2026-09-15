@@ -26,12 +26,15 @@ assert.deepEqual([...frame.subarray(2)], [...opus])
 // encodeVoiceFrame alias
 assert.deepEqual([...encodeVoiceFrame(opus)], [...frame])
 
-// Downlink: always 4-byte header with clientId
+// Downlink: always 6-byte header with clientId u32 BE
 const opusLong = new Uint8Array([0x11, 0x22, 0x33, 0x44])
 const clientId = 0x0abc
 const withId = encodeServerFrame(opusLong, clientId, CODEC_OPUS_VOICE)
 assert.equal(withId.length, FRAME_HEADER_BYTES + opusLong.length)
-assert.equal((withId[2] << 8) | withId[3], clientId)
+assert.equal(
+  ((withId[2] << 24) | (withId[3] << 16) | (withId[4] << 8) | withId[5]) >>> 0,
+  clientId,
+)
 
 const parsedId = decodeVoiceFrame(withId)
 assert.ok(parsedId)
@@ -43,19 +46,27 @@ assert.deepEqual([...encodeVoiceFrameWithId(opusLong, clientId)], [...withId])
 assert.ok(decodeServerFrame(withId))
 assert.equal(
   decodeServerFrame(
-    new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0x00, 0x01]),
+    new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0x00, 0x00, 0x00, 0x01]),
   ),
   null,
 )
 
+// Large clientId (beyond u16) must survive
+const big = decodeVoiceFrame(encodeServerFrame(opusLong, 100000))
+assert.ok(big)
+assert.equal(big.clientId, 100000)
+
 // decodeVoiceFrame rejects short / wrong-opcode frames (no legacy heuristic)
-assert.equal(decodeVoiceFrame(new Uint8Array([9, 1, 2, 3, 4])), null)
-assert.equal(decodeVoiceFrame(new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0xff])), null)
+assert.equal(decodeVoiceFrame(new Uint8Array([9, 1, 2, 3, 4, 5, 6])), null)
+assert.equal(
+  decodeVoiceFrame(new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0xff])),
+  null,
+)
 assert.equal(decodeVoiceFrame(new Uint8Array([OPCODE_AUDIO])), null)
 
-// length 4 = header-only downlink, empty opus
+// length 6 = header-only downlink, empty opus
 const headerOnly = decodeVoiceFrame(
-  new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0x00, 0x07]),
+  new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0x00, 0x00, 0x00, 0x07]),
 )
 assert.ok(headerOnly)
 assert.equal(headerOnly.clientId, 7)

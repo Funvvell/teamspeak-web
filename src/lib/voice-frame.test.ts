@@ -28,15 +28,17 @@ describe('encodeClientFrame (uplink, 2-byte header)', () => {
   })
 })
 
-describe('encodeServerFrame (downlink, 4-byte header)', () => {
-  it('writes clientId as u16 BE after opcode+codec', () => {
+describe('encodeServerFrame (downlink, 6-byte header)', () => {
+  it('writes clientId as u32 BE after opcode+codec', () => {
     const opus = new Uint8Array([0xde, 0xad, 0xbe, 0xef])
     const clientId = 0x1234
     const frame = encodeServerFrame(opus, clientId, CODEC_OPUS_VOICE)
     expect(frame.length).toBe(FRAME_HEADER_BYTES + opus.length)
     expect(frame[0]).toBe(OPCODE_AUDIO)
     expect(frame[1]).toBe(CODEC_OPUS_VOICE)
-    expect((frame[2] << 8) | frame[3]).toBe(clientId)
+    expect(
+      ((frame[2] << 24) | (frame[3] << 16) | (frame[4] << 8) | frame[5]) >>> 0,
+    ).toBe(clientId)
     expect([...frame.subarray(FRAME_HEADER_BYTES)]).toEqual([...opus])
   })
 
@@ -46,7 +48,7 @@ describe('encodeServerFrame (downlink, 4-byte header)', () => {
   })
 })
 
-describe('decodeVoiceFrame (downlink, always 4-byte header)', () => {
+describe('decodeVoiceFrame (downlink, always 6-byte header)', () => {
   it('roundtrips encodeServerFrame → decodeVoiceFrame', () => {
     const opus = new Uint8Array([0x01, 0x02, 0x03, 0x04, 0x05])
     const parsed = decodeVoiceFrame(encodeServerFrame(opus, 0x0abc))
@@ -56,10 +58,17 @@ describe('decodeVoiceFrame (downlink, always 4-byte header)', () => {
     expect([...parsed!.opus]).toEqual([...opus])
   })
 
-  it('clientId u16 max 65535 survives roundtrip', () => {
+  it('clientId beyond u16 (e.g. 100000) survives roundtrip', () => {
     const opus = new Uint8Array([0xff, 0xee, 0xdd])
-    const parsed = decodeVoiceFrame(encodeServerFrame(opus, 0xffff))
-    expect(parsed!.clientId).toBe(0xffff)
+    const parsed = decodeVoiceFrame(encodeServerFrame(opus, 100000))
+    expect(parsed!.clientId).toBe(100000)
+    expect([...parsed!.opus]).toEqual([...opus])
+  })
+
+  it('clientId u32 max 0xffffffff survives roundtrip', () => {
+    const opus = new Uint8Array([0x01])
+    const parsed = decodeVoiceFrame(encodeServerFrame(opus, 0xffffffff))
+    expect(parsed!.clientId).toBe(0xffffffff)
     expect([...parsed!.opus]).toEqual([...opus])
   })
 
@@ -80,18 +89,24 @@ describe('decodeVoiceFrame (downlink, always 4-byte header)', () => {
   })
 
   it('rejects wrong opcode', () => {
-    expect(decodeVoiceFrame(new Uint8Array([9, 1, 0, 0, 1]))).toBeNull()
+    expect(
+      decodeVoiceFrame(new Uint8Array([9, 1, 0, 0, 0, 1, 0xff])),
+    ).toBeNull()
   })
 
-  it('rejects frames shorter than the 4-byte header', () => {
+  it('rejects frames shorter than the 6-byte header', () => {
     expect(decodeVoiceFrame(new Uint8Array([]))).toBeNull()
     expect(decodeVoiceFrame(new Uint8Array([OPCODE_AUDIO]))).toBeNull()
     expect(decodeVoiceFrame(new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE]))).toBeNull()
-    expect(decodeVoiceFrame(new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0x00]))).toBeNull()
+    expect(
+      decodeVoiceFrame(new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0x00, 0x00, 0x00])),
+    ).toBeNull()
   })
 
-  it('accepts header-only frames with empty opus (length == 4)', () => {
-    const parsed = decodeVoiceFrame(new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0x00, 0x05]))
+  it('accepts header-only frames with empty opus (length == 6)', () => {
+    const parsed = decodeVoiceFrame(
+      new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0x00, 0x00, 0x00, 0x05]),
+    )
     expect(parsed).not.toBeNull()
     expect(parsed!.clientId).toBe(5)
     expect(parsed!.opus.length).toBe(0)
@@ -113,7 +128,13 @@ describe('decodeServerFrame (stricter: requires ≥1 opus byte)', () => {
   })
 
   it('rejects wrong opcode and short frames', () => {
-    expect(decodeServerFrame(new Uint8Array([9, 1, 0, 0, 1]))).toBeNull()
-    expect(decodeServerFrame(new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0, 0]))).toBeNull()
+    expect(
+      decodeServerFrame(new Uint8Array([9, 1, 0, 0, 0, 1, 0xff])),
+    ).toBeNull()
+    expect(
+      decodeServerFrame(
+        new Uint8Array([OPCODE_AUDIO, CODEC_OPUS_VOICE, 0, 0, 0, 0]),
+      ),
+    ).toBeNull()
   })
 })

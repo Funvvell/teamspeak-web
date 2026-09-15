@@ -5,7 +5,7 @@
  *
  * Frame format (see voice-frame.ts):
  * - Uplink (this → gateway):  [1][codec][opus...]                 (2-byte header, no id)
- * - Downlink (gateway → this): [1][codec][idHi][idLo][opus...]    (always 4-byte header)
+ * - Downlink (gateway → this): [1][codec][id u32 BE][opus...]     (always 6-byte header)
  */
 
 export {
@@ -61,6 +61,8 @@ export interface VoicePipeline {
   setAudioFx(fx: { aec: boolean; agc: boolean; noise?: boolean }): void
   /** RNNoise VAD（0~1 语音概率；降噪未就绪时返回 -1） */
   getVad(): number
+  /** 0–1 input level tapped after RNNoise (same signal the encoder sees). -1 if capture off. */
+  getInputLevel(): number
   setOutputDevice(deviceId: string): Promise<void>
   beep(freq?: number, durationSec?: number, gain?: number): void
   close(): void
@@ -98,6 +100,11 @@ export function createVoicePipeline(): VoicePipeline {
   let wasmAbort: AbortController | null = null
   /** Bumped on stopCapture/close so a late initRnnoise result is ignored. */
   let rnnoiseGen = 0
+  /** Post-RNNoise analyser for VOX/meter — same samples the encoder consumes. */
+  let inputAnalyser: AnalyserNode | null = null
+  let inputLevelBuf: Float32Array<ArrayBuffer> | null = null
+  /** Drop encoded frames when the encoder queue backs up (main-thread stalls). */
+  const MAX_ENCODE_QUEUE = 10
 
   function ensureCtx(): AudioContext {
     if (!audioCtx || audioCtx.state === 'closed') {
@@ -130,6 +137,9 @@ export function createVoicePipeline(): VoicePipeline {
         }
       },
       error: (e) => {
+        // A failed chunk still consumes a FIFO slot only if output fires;
+        // WebCodecs drops the chunk without output, so drop the pending id.
+        if (clientIdQueue.length > 0) clientIdQueue.shift()
         console.warn('[voice] decoder error', e)
       },
     })
@@ -174,6 +184,13 @@ export function createVoicePipeline(): VoicePipeline {
 
   function flushPcm() {
     if (!encoder || pcmLength < FRAME_SAMPLES) return
+    // Backpressure: live voice cannot wait — drop whole 20ms frames when the
+    // encoder is backed up (main-thread stall / slow encode).
+    if (encoder.encodeQueueSize > MAX_ENCODE_QUEUE) {
+      pcmBuffer = []
+      pcmLength = 0
+      return
+    }
     // Concat and split into 20ms frames
     const all = new Float32Array(pcmLength)
     let off = 0
@@ -185,6 +202,7 @@ export function createVoicePipeline(): VoicePipeline {
     pcmLength = 0
 
     for (let i = 0; i + FRAME_SAMPLES <= all.length; i += FRAME_SAMPLES) {
+      if (encoder.encodeQueueSize > MAX_ENCODE_QUEUE) break
       const frame = all.subarray(i, i + FRAME_SAMPLES)
       const audioData = new AudioData({
         format: 'f32-planar',
@@ -228,6 +246,7 @@ export function createVoicePipeline(): VoicePipeline {
 
     encoder = new AudioEncoder({
       output: (chunk) => {
+        // Drop late frames if WS/backpressure already saturated — keep latency low.
         const data = new Uint8Array(chunk.byteLength)
         chunk.copyTo(data)
         onFrame(data)
@@ -286,6 +305,11 @@ export function createVoicePipeline(): VoicePipeline {
     }
     head.connect(rnnoiseNode)
     rnnoiseNode.connect(workletNode)
+    // Tap after RNNoise so VOX/meter see the same signal the encoder encodes.
+    inputAnalyser = ctx.createAnalyser()
+    inputAnalyser.fftSize = 512
+    rnnoiseNode.connect(inputAnalyser)
+    inputLevelBuf = null
     if (fxNoise) {
       void initRnnoise()
     } else {
@@ -385,7 +409,22 @@ export function createVoicePipeline(): VoicePipeline {
     }
     mediaStream?.getTracks().forEach((t) => t.stop())
     mediaStream = null
+    if (inputAnalyser) {
+      try {
+        inputAnalyser.disconnect()
+      } catch {
+        /* ignore */
+      }
+      inputAnalyser = null
+      inputLevelBuf = null
+    }
     if (encoder && encoder.state !== 'closed') {
+      try {
+        // Flush residual queued chunks so the last ~20–40ms of speech is not lost.
+        void encoder.flush().catch(() => {})
+      } catch {
+        /* ignore */
+      }
       try {
         encoder.close()
       } catch {
@@ -412,6 +451,18 @@ export function createVoicePipeline(): VoicePipeline {
 
   function getVad() {
     return rnnoiseReady ? vadRef : -1
+  }
+
+  function getInputLevel(): number {
+    if (!inputAnalyser) return -1
+    const n = inputAnalyser.fftSize
+    if (!inputLevelBuf || inputLevelBuf.length !== n) {
+      inputLevelBuf = new Float32Array(new ArrayBuffer(n * 4))
+    }
+    inputAnalyser.getFloatTimeDomainData(inputLevelBuf)
+    let sum = 0
+    for (let i = 0; i < n; i++) sum += inputLevelBuf[i] * inputLevelBuf[i]
+    return Math.min(1, Math.sqrt(sum / n) * 4)
   }
 
   let rnnoiseReady = false
@@ -529,6 +580,7 @@ export function createVoicePipeline(): VoicePipeline {
     stopCapture,
     setAudioFx,
     getVad,
+    getInputLevel,
     pushIncoming,
     setOutputVolume,
     setClientVolume,

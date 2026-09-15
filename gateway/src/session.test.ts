@@ -102,7 +102,7 @@ describe('Session.handleRaw binary voice frames', () => {
     expect(adapter.sendVoice).not.toHaveBeenCalled()
   })
 
-  it('downlink onVoice sends 4-byte header with clientId u16 BE', async () => {
+  it('downlink onVoice sends 6-byte header with clientId u32 BE', async () => {
     const sent: unknown[] = []
     const ws = {
       readyState: 1,
@@ -132,7 +132,8 @@ describe('Session.handleRaw binary voice frames', () => {
     session.handleRaw(
       JSON.stringify({
         type: 'connect',
-        host: 'ts.example.com',
+        // Public IP literal — avoids DNS resolve in host policy (ts3 mode).
+        host: '8.8.8.8',
         port: 9987,
         nickname: 'tester',
       }),
@@ -142,6 +143,51 @@ describe('Session.handleRaw binary voice frames', () => {
     voiceCb!({ clientId: 0x0abc, codec: 4, data: Uint8Array.from([0x11, 0x22]) })
     const buf = sent.find((s) => Buffer.isBuffer(s)) as Buffer
     expect(buf).toBeTruthy()
-    expect([...buf]).toEqual([1, 4, 0x0a, 0xbc, 0x11, 0x22])
+    // [opcode][codec][clientId u32 BE=0x00000abc][opus]
+    expect([...buf]).toEqual([1, 4, 0x00, 0x00, 0x0a, 0xbc, 0x11, 0x22])
+  })
+})
+
+describe('Session connect lifecycle', () => {
+  it('tears down adapter when connect() rejects', async () => {
+    const { ws, messages } = makeWs()
+    const adapter = makeAdapter()
+    ;(adapter.connect as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('handshake failed'),
+    )
+    const session = new Session(ws as never, () => adapter)
+    session.handleRaw(
+      JSON.stringify({
+        type: 'connect',
+        host: '8.8.8.8',
+        port: 9987,
+        nickname: 'tester',
+      }),
+    )
+    await new Promise((r) => setTimeout(r, 10))
+    expect(adapter.disconnect).toHaveBeenCalled()
+    const msgs = messages()
+    expect(msgs.some((m) => m.type === 'error')).toBe(true)
+  })
+
+  it('rejects invalid join_channel ids before adapter call', async () => {
+    const { ws, messages } = makeWs()
+    const adapter = makeAdapter()
+    const session = new Session(ws as never, () => adapter)
+    ;(session as unknown as { adapter: TsProtocolAdapter }).adapter = adapter
+    session.handleRaw(JSON.stringify({ type: 'join_channel', channelId: 'nope' }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(adapter.joinChannel).not.toHaveBeenCalled()
+    expect(messages().some((m) => m.type === 'error')).toBe(true)
+  })
+
+  it('dispose is idempotent and clears adapter', async () => {
+    const { ws } = makeWs()
+    const adapter = makeAdapter()
+    const session = new Session(ws as never, () => adapter)
+    ;(session as unknown as { adapter: TsProtocolAdapter }).adapter = adapter
+    await session.dispose()
+    await session.dispose()
+    expect(adapter.disconnect).toHaveBeenCalledTimes(1)
   })
 })

@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 dist/
 .env
 *.log
@@ -17,3 +17,9 @@ edge.log
 
 design.md.txt
 coverage/
+output/
+.playwright-cli/
+web-ui.log
+gateway-ui.log
+mock-run.log
+*.err

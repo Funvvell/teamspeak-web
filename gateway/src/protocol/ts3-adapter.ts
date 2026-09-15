@@ -587,7 +587,13 @@ export function createTs3Adapter(
       const fresh = await quickRefresh(client)
       emitState()
       // 后台渐进补全频道树与成员细节（不阻塞首屏）
-      void backgroundFullRefresh(client, refreshAbort.signal).catch(() => {})
+      void backgroundFullRefresh(client, refreshAbort.signal).catch((err) => {
+        if (refreshAbort.signal.aborted) return
+        console.warn(
+          '[ts3] background refresh failed:',
+          err instanceof Error ? err.message : err,
+        )
+      })
 
       let serverName = fresh.serverName || addr
       let welcome = 'Connected via real TeamSpeak 3 protocol'

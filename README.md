@@ -14,7 +14,7 @@
 
 TeamSpeak Web 通过一个轻量的 **Node.js WebSocket 网关**桥接 TeamSpeak 3 服务器，前端是 React 19 + TypeScript 的单页应用：**用户只要打开网址，就能连接任意 TS3 服务器**，支持文字聊天、语音通话（WebCodecs Opus）、声控 VOX / 按键 PTT、频道管理、成员右键菜单等完整功能。
 
-界面采用 Figma 高保真设计稿还原：浅灰白底 + 雾蓝渐变晕染背景 + **轻磨砂玻璃卡片**，柔和阴影、圆角控件、充足留白，2D 平面 UI 风格（非 Discord 风格、非深色模式）。背景为**动态晕染**（渐变慢速流动 + 光斑漂移，支持系统"减弱动态效果"）。
+界面为**战术语音调度台**风格：左侧图标轨 + 顶栏遥测 + 三栏频道/成员/聊天工作台，浅色纸质底与等宽元数据标签；登录页为非对称接入表单。响应式：手机端底部导航切换面板。
 
 ---
 
@@ -23,7 +23,7 @@ TeamSpeak Web 通过一个轻量的 **Node.js WebSocket 网关**桥接 TeamSpeak
 | 类别 | 能力 |
 |------|------|
 | 🔊 语音 | WebCodecs Opus 编解码、声控 VOX（**RNNoise VAD 智能门控**，抗键盘/风扇误触发）/ 常开 / 按键 PTT（默认空格）、**软件回声消除（FDAF+NLMS，HOP 128 ≈ 2.7ms 低延迟）**、**自动增益（DynamicsCompressor）**、**AI 降噪（RNNoise，10ms 帧实时抑制稳态噪声）**、麦克风自动识别与电平、输出设备选择 |
-| 🖥️ 界面 | 浅色玻璃拟态 UI（浅灰白底、雾蓝渐变、轻磨砂卡片、柔和阴影）、3 栏工作台、圆角控件、毛玻璃背景光斑、**动态背景**（渐变慢速流动 + 光斑漂移，尊重"减弱动态效果"） |
+| 🖥️ 界面 | 战术调度台布局（图标轨 + 报头遥测 + 频道/成员/聊天三栏）、浅色纸质 token、等宽元数据；手机端底部导航 |
 | 📱 多端 | **响应式布局**：手机端底部导航（频道 / 语音 / 聊天）单面板切换、≥44px 触控目标、刘海屏安全区适配；平板 / 桌面自动回归 2~3 栏工作台 |
 
 | 💬 聊天 | 频道消息 / 服务器消息 / 私聊、事件流（进入 / 离开 / 移动 / 连接）、系统通知音效、桌面通知 |
@@ -234,7 +234,9 @@ server {
 | `GATEWAY_TOKEN` | 空 | **ts3 模式必填**（或 `ALLOW_OPEN=1`）。非空则 `/ws`、`/config` 需 `?token=` 或 `Authorization: Bearer` |
 | `ALLOW_OPEN` | `0` | 设为 `1` 时允许 ts3 模式无 token 启动（不推荐公网） |
 | `ALLOW_PRIVATE_HOSTS` | `0` | 设为 `1` 时允许连接私网/本机 TS 服务器（兼容旧名 `ALLOW_PRIVATE`） |
-| `ALLOWED_HOSTS` | 空 | 逗号分隔主机白名单；设置后仅允许列表内主机（兼容旧名 `ALLOW_HOSTS`） |
+| `ALLOWED_HOSTS` | 空 | 逗号分隔主机白名单；设置后仅允许列表内主机（兼容旧名 `ALLOW_HOSTS`）。生产强烈建议设置 |
+| `ALLOWED_ORIGINS` | 空 | 逗号分隔 `/ws` Origin 白名单（完整 Origin，如 `https://ts.example.com`）。空=不限制；生产建议填写 |
+| `ALLOW_QUERY_TOKEN` | `1` | 设为 `0` 时拒绝 `?token=`（浏览器 WebSocket 无法带 Authorization 头，关闭前请确认鉴权方案） |
 | `DEFAULT_HOST` | 空 | 首次打开预填服务器地址 |
 | `DEFAULT_PORT` | `9987` | 预填端口 |
 | `DEFAULT_NICKNAME` | 空 | 预填昵称 |
@@ -257,8 +259,9 @@ npm start
 
 ## 🔒 安全
 
-- **`PROTOCOL=ts3` 必须设置 `GATEWAY_TOKEN`**，否则网关拒绝启动（仅 `ALLOW_OPEN=1` 可显式放开，不推荐公网）。客户端连接 `/ws` 时带上 `?token=` 或 `Authorization: Bearer <token>`；优先走 HTTPS，并尽量避免把 token 写进可被代理日志记录的 URL。
-- **主机白名单**：`ALLOWED_HOSTS=ts.example.com,*.corp.example`（精确名或 `*.suffix`）。默认拒绝私网/本机地址；内网部署可设 `ALLOW_PRIVATE_HOSTS=1`。始终拒绝云元数据地址。
+- **`PROTOCOL=ts3` 必须设置 `GATEWAY_TOKEN`**，否则网关拒绝启动（仅 `ALLOW_OPEN=1` 可显式放开，不推荐公网）。客户端连接 `/ws` 时带上 `?token=` 或 `Authorization: Bearer <token>`；优先走 HTTPS，并尽量避免把 token 写进可被代理日志记录的 URL（可用 `ALLOW_QUERY_TOKEN=0` 强制禁用 query token）。
+- **主机白名单**：`ALLOWED_HOSTS=ts.example.com,*.corp.example`（精确名或 `*.suffix`）。默认拒绝私网/本机地址（含 IPv4-mapped IPv6 与 DNS 解析到私网的主机名）；内网部署可设 `ALLOW_PRIVATE_HOSTS=1`。始终拒绝云元数据地址。生产建议同时设置 `ALLOWED_HOSTS` 与 `ALLOWED_ORIGINS`。
+- **systemd 部署**：密钥写在 `/etc/teamspeak-web/env`（`chmod 600`），不要写进 unit 文件。
 - **麦克风需要安全上下文**：公网必须 HTTPS（或本机 localhost），否则浏览器拒绝 `getUserMedia` / WebCodecs。
 - **不要提交含密钥或真实内网地址的 `.env`**；仓库默认忽略该文件。对外分享截图/日志前自查是否含 token、IP、密码。
 - 服务器密码仅在当次连接内存中使用，不写日志。
