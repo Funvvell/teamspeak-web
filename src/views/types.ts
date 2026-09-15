@@ -81,7 +81,7 @@ export function emptyTab(partial?: Partial<ConnectionTab>): ConnectionTab {
   }
 }
 
-export type AppView = 'login' | 'main' | 'settings'
+export type AppView = 'login' | 'main' | 'settings' | 'permissions'
 export type SettingsNav = 'account' | 'audio' | 'activation' | 'notify' | 'theme' | 'network'
 export type FieldErrors = { host?: string; nickname?: string }
 export type ToastKind = 'success' | 'info' | 'warn' | 'err'
